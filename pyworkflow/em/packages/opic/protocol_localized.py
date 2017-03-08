@@ -275,7 +275,7 @@ class ProtLocalizedRecons(ProtParticlePicking, ProtParticles):
 
     def __getOutputSuffix(self):
         """ Get the name to be used for a new output.
-        For example: outputCoordiantes7.
+        For example: outputCoordinates7.
         It should take into account previous outputs
         and number with a higher value.
         """

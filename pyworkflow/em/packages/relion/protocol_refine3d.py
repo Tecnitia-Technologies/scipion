@@ -163,7 +163,7 @@ leads to objective and high-quality results.
         return summary
     
     def _summaryContinue(self):
-        """ Should be overriden in subclasses to
+        """ Should be overridden in subclasses to
         return summary messages for CONTINUE EXECUTION.
         """
         summary = []

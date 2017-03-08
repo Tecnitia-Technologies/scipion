@@ -23,8 +23,8 @@
 # *  e-mail address 'scipion@cnb.csic.es'
 # *
 # **************************************************************************
-
-from pyworkflow.protocol.params import (PointerParam, FloatParam,  
+from pyworkflow.em.packages.relion import RELION_HOME
+from pyworkflow.protocol.params import (PointerParam, FloatParam,
                                         StringParam, BooleanParam, LEVEL_ADVANCED)
 from pyworkflow.em.data import Volume 
 from pyworkflow.em.protocol import ProtReconstruct3D
@@ -186,7 +186,7 @@ class ProtRelionReconstruct(ProtReconstruct3D):
         return summary message for NORMAL EXECUTION. 
         """
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion(RELION_HOME, errors)
         return errors
     
     def _summary(self):

@@ -26,6 +26,8 @@
 
 import os
 from os.path import relpath
+
+from pyworkflow.em.packages.relion import RELION_HOME
 from pyworkflow.protocol.params import (PointerParam, FloatParam, RelationParam,
                                         IntParam, BooleanParam, LEVEL_ADVANCED, 
                                         LabelParam)
@@ -273,7 +275,7 @@ class ProtRelionAutopickFom(ProtRelionAutopickBase):
         return summary message for NORMAL EXECUTION. 
         """
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion(RELION_HOME, errors)
 
         if self.particleDiameter > self.getInputDimA():
             errors.append('Particle diameter (%d) can not be greater than size (%d)' % 
@@ -382,7 +384,7 @@ class ProtRelionAutopick(ProtRelionAutopickBase):
         return summary message for NORMAL EXECUTION. 
         """
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion(RELION_HOME, errors)
         return errors
     
     def _summary(self):

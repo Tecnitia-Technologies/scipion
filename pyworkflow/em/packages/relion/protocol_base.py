@@ -31,7 +31,8 @@ import re
 from glob import glob
 from os.path import exists
 
-from pyworkflow.protocol.params import (BooleanParam, PointerParam, FloatParam, 
+from pyworkflow.em.packages.relion import RELION_HOME
+from pyworkflow.protocol.params import (BooleanParam, PointerParam, FloatParam,
                                         IntParam, EnumParam, StringParam, 
                                         LabelParam, PathParam)
 from pyworkflow.protocol.constants import LEVEL_ADVANCED
@@ -734,7 +735,7 @@ class ProtRelionBase(EMProtocol):
     #--------------------------- INFO functions -------------------------------------------- 
     def _validate(self):
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion(RELION_HOME, errors)
 
         if self.doContinue:
             continueProtocol = self.continueRun.get()

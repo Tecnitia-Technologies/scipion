@@ -414,15 +414,17 @@ relion_commands = [('./INSTALL.sh -j %d' % env.getProcessors(),
                           ['relion_build.log',
                            'bin/relion_refine'])]
 
-env.addPackage('relion', version='1.3',
+RELION_PACKAGE = 'relion'
+
+env.addPackage(RELION_PACKAGE, version='1.3',
                tar='relion-1.3.tgz',
                commands=relion_commands)
 
-env.addPackage('relion', version='1.4',
+env.addPackage(RELION_PACKAGE, version='1.4',
                tar='relion-1.4.tgz',
                commands=relion_commands)
 
-env.addPackage('relion', version='1.4f',
+env.addPackage(RELION_PACKAGE, version='1.4f',
                tar='relion-1.4_float.tgz',
                commands=relion_commands)
 
@@ -433,7 +435,7 @@ relion_vars = [('FFTW_LIB', SW_LIB),
 relion2_commands = [('cmake -DGUI=OFF -DCMAKE_INSTALL_PREFIX=./ .', []),
                     ('make -j %d' % env.getProcessors(), ['bin/relion_refine'])]
 
-env.addPackage('relion', version='2.0.3',
+env.addPackage(RELION_PACKAGE, version='2.0.3',
                tar='relion-2.0.3.tgz',
                commands=relion2_commands,
                updateCuda=True,

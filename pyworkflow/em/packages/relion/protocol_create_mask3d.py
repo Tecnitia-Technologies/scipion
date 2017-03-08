@@ -27,7 +27,7 @@ from pyworkflow import VERSION_1_1
 from pyworkflow.em import ProtCreateMask3D, VolumeMask
 from convert import convertBinaryVol
 import pyworkflow.protocol.params as params
-
+from pyworkflow.em.packages.relion import RELION_HOME
 
 AND = 0
 OR = 1
@@ -137,7 +137,7 @@ class ProtRelionCreateMask3D(ProtCreateMask3D):
     # --------------------------- INFO functions --------------------------------
     def _validate(self):
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion(RELION_HOME, errors)
 
         if self.doCompare:
             pixVol1 = self.inputVolume.get().getSamplingRate()

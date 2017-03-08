@@ -32,16 +32,25 @@ import numpy
 from collections import OrderedDict
 from itertools import izip
 
+from pyworkflow import SCIPION_HOME
+from pyworkflow.em.packages.relion import RELION_HOME
 from pyworkflow.object import ObjectWrap, String, Integer
 from pyworkflow.utils import Environ
 from pyworkflow.utils.path import (createLink, cleanPath, copyFile,
                                    replaceBaseExt, getExt, removeExt)
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
+from install.funcs import getEm
 
 
 # This dictionary will be used to map
 # between CTFModel properties and Xmipp labels
+class RELION:
+    PACKAGE_NAME = 'relion'
+    V2_0 = '2.0'
+    V1_4 = '1.4'
+    V1_3 = '1.3'
+
 ACQUISITION_DICT = OrderedDict([ 
        ("_amplitudeContrast", md.RLN_CTF_Q0),
        ("_sphericalAberration", md.RLN_CTF_CS),
@@ -104,14 +113,24 @@ ALIGNMENT_DICT = OrderedDict([
 
 
 def getEnviron():
+    """ Setup the environment variables needed to launch Relion base on default config file """
+    return _getEnviron(getRelionHome())
+
+
+def getEnvironV14():
+    """ Setup the environment variables needed to launch Relion 1.4 base"""
+    return _getEnviron(getRelionV14Home())
+
+
+def _getEnviron(relionHome):
     """ Setup the environment variables needed to launch Relion. """
     
     environ = Environ(os.environ)
-    relPath = join(os.environ['RELION_HOME'], 'bin')
+    relPath = join(relionHome, 'bin')
     
-    if not relPath in environ['PATH']:
-        environ.update({'PATH': join(os.environ['RELION_HOME'], 'bin'),
-                        'LD_LIBRARY_PATH': join(os.environ['RELION_HOME'], 'lib') + ":" + join(os.environ['RELION_HOME'], 'lib64'),
+    if relPath not in environ['PATH']:
+        environ.update({'PATH': join(relionHome, 'bin'),
+                        'LD_LIBRARY_PATH': join(relionHome, 'lib') + ":" + join(relionHome, 'lib64'),
                         'SCIPION_MPI_FLAGS': os.environ.get('RELION_MPI_FLAGS', ''),
                         }, position=Environ.BEGIN)
     
@@ -122,8 +141,25 @@ def getEnviron():
     return environ
 
 
+def getRelionHome():
+    """ Returns relion home and joins the extra param (if present) to it """
+    relionHome = os.environ[RELION_HOME]
+
+    return relionHome
+
+
+def getRelionV14Home():
+    """ Returns where theoretically relion 1.4 should be in case it's installed"""
+    return _composeRelionHome(RELION.V1_4)
+
+
+def _composeRelionHome(version):
+    relionPath = RELION.PACKAGE_NAME + '-' + version
+    return join(SCIPION_HOME, getEm(relionPath))
+
+
 def getVersion():
-    path = os.environ['RELION_HOME']
+    path = getRelionHome()
     for v in getSupportedVersions():
         if v in path:
             return v
@@ -131,7 +167,7 @@ def getVersion():
 
 
 def getSupportedVersions():
-    return ['1.3', '1.4', '2.0']
+    return [RELION.V1_3, RELION.V1_4, RELION.V2_0]
 
 
 def locationToRelion(index, filename):

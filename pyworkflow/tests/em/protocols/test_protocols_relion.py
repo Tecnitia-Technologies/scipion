@@ -78,6 +78,26 @@ class TestRelionBase(BaseTest):
         return protImport
 
 
+class TestRelionEnvironment(BaseTest):
+    def testEnvironment(self):
+
+        relionHome = getRelionHome()
+        self.assertEqual(os.environ[RELION_HOME], relionHome, 'getRelionHome() does not get the right variable from environment')
+        self.assertTrue(os.path.isabs(relionHome))
+
+        env = getEnviron()
+        self.assertIn('PATH', env, 'PATH not in relion environment')
+        self.assertIn('LD_LIBRARY_PATH', env, 'LD_LIBRARY_PATH not in relion environment')
+        self.assertIn('SCIPION_MPI_FLAGS', env, 'SCIPION_MPI_FLAGS not in relion environment')
+
+        relionV1_4 = getRelionV14Home()
+        self.assertTrue(os.path.isabs(relionV1_4), 'Path to relion 1.4 should be absolute')
+        # This is to force relion to get the 1.4 version environment
+        env = getEnvironV14()
+        self.assertTrue(relionV1_4 in env['PATH'], 'Relion v1.4 path not in environment')
+
+
+
 class TestRelionClassify2D(TestRelionBase):
     @classmethod
     def setUpClass(cls):

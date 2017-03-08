@@ -30,6 +30,7 @@ import sys
 
 import pyworkflow.em.metadata as md
 from pyworkflow import VERSION_1_1
+from pyworkflow.em.packages.relion import RELION_HOME
 from pyworkflow.protocol.params import PointerParam
 from pyworkflow.em.protocol import ProtOperateParticles
 
@@ -150,7 +151,7 @@ class ProtRelionSubtract(ProtOperateParticles):
         return summary message for NORMAL EXECUTION. 
         """
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion(RELION_HOME, errors)
 
         return errors
     

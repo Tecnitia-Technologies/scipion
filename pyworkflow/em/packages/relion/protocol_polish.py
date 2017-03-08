@@ -29,6 +29,8 @@ import os
 import re
 from glob import glob
 from os.path import exists
+
+from pyworkflow.em.packages.relion import RELION_HOME
 from pyworkflow.protocol.params import (PointerParam, FloatParam, StringParam,
                                         IntParam, BooleanParam, LEVEL_ADVANCED)
 from pyworkflow.em.data import Volume 
@@ -261,11 +263,11 @@ class ProtRelionPolish(ProtProcessParticles, ProtRelionBase):
     
     #--------------------------- INFO functions -------------------------------------------- 
     def _validate(self):
-        """ Should be overriden in subclasses to 
+        """ Should be overridden in subclasses to
         return summary message for NORMAL EXECUTION. 
         """
         errors = []
-        self.validatePackageVersion('RELION_HOME', errors)
+        self.validatePackageVersion(RELION_HOME, errors)
 
         if self.performBfactorWeighting:
             if self.maskForReconstructions.get() is None:
@@ -274,7 +276,7 @@ class ProtRelionPolish(ProtProcessParticles, ProtRelionBase):
         return errors
     
     def _summary(self):
-        """ Should be overriden in subclasses to 
+        """ Should be overridden in subclasses to
         return summary message for NORMAL EXECUTION. 
         """
         return []

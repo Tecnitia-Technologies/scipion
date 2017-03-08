@@ -28,6 +28,7 @@ from glob import glob
 
 import pyworkflow.em as em
 import pyworkflow.em.metadata as md
+from pyworkflow.em.packages.relion import RELION_HOME
 from pyworkflow.utils.path import moveFile
 
 from pyworkflow.em.protocol.protocol_particles import ProtProcessParticles
@@ -202,7 +203,7 @@ class ProtRelionPreprocessParticles(ProtProcessParticles, ProtRelionBase):
         return summary message for NORMAL EXECUTION. 
         """
         validateMsgs = []
-        self.validatePackageVersion('RELION_HOME', validateMsgs)
+        self.validatePackageVersion(RELION_HOME, validateMsgs)
         
         if self.doScale and self.scaleSize.get() % 2 != 0:
             validateMsgs.append("Only re-scaling to even-sized images is "

@@ -31,6 +31,8 @@ from bibtex import _bibtex # Load bibtex dict with references
 _logo = "relion_logo.png"
 _references = ['Scheres2012a', 'Scheres2012b', 'Chen2012']
 
+RELION_HOME = 'RELION_HOME'
+
 from convert import *
 from protocol_create_mask3d import ProtRelionCreateMask3D
 from protocol_classify2d import ProtRelionClassify2D

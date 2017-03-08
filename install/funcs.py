@@ -88,6 +88,15 @@ Continue anyway? (y/n)""" % lib)
     # software/log/lib_...log so we don't check again if we already said "no"
 
 
+def getBin(name):
+    """Returns Scipion software binaries location"""
+    return 'software/bin/%s' % name
+
+
+def getEm(name):
+    """Returns Scipion software em packages location"""
+    return 'software/em/%s' % name
+
 
 class Command:
     def __init__(self, env, cmd, targets=None,  **kwargs):
@@ -258,10 +267,12 @@ class Environment:
         return 'software/lib/lib%s.%s' % (name, self._libSuffix)
 
     def getBin(self, name):
-        return 'software/bin/%s' % name
-    
+        # Call the new method
+        return getBin(name)
+
     def getEm(self, name):
-        return 'software/em/%s' % name
+        # Call the new method
+        return getEm(name)
 
     def addTarget(self, name, *commands, **kwargs):
 

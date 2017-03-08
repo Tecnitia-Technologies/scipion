@@ -100,9 +100,10 @@ ALIGNMENT_DICT = OrderedDict([
 
 
 def getRelionEnviron():
-    """ Setup the environment variables needed to launch Relion. """
-    from pyworkflow.em.packages.relion import getEnviron
-    return getEnviron()
+    """ Setup the environment variables needed to launch Relion. loc rec needs R1.4"""
+
+    from pyworkflow.em.packages.relion import getEnvironV14
+    return getEnvironV14()
 
 
 def setEnviron():
