@@ -26,7 +26,10 @@
 
 import os
 from os.path import join
-from pyworkflow.utils import Environ
+from pyworkflow.utils import Environ, getEnvVariable
+
+
+SCRATCHDIR = getEnvVariable('EMAN2SCRATCHDIR')
 
 
 def getEnviron():
@@ -49,6 +52,7 @@ def getEnviron():
             'PATH': join(EMAN2DIR, 'bin'),
             'LD_LIBRARY_PATH': os.pathsep.join(pathList),
             'PYTHONPATH': os.pathsep.join(pathList),
+            'SCIPION_MPI_FLAGS': os.environ.get('EMANMPIOPTS', '')
             }, position=Environ.REPLACE)
 
     if getVersion() != '2.2':

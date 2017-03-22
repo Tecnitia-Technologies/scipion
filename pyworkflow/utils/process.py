@@ -87,8 +87,7 @@ def buildRunCommand(programname, params, numberOfMpi, hostConfig=None, env=None)
         e2program = os.path.basename(programname.split()[1])
 
         if e2program.startswith('e2'):
-            #FIXME: figure out how to pass mpiFlags to eman2
-            return '%s %s' % (programname, params)
+            return 'export EMANMPIOPTS=%s; %s %s' % (mpiFlags, programname, params)
         else:
             return hostConfig.mpiCommand.get() % {
                 'JOB_NODES': numberOfMpi,

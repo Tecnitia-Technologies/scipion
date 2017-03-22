@@ -29,7 +29,7 @@ import re
 from os.path import exists
 from glob import glob
 import pyworkflow.em as em
-from pyworkflow.em.packages.eman2.eman2 import getEmanProgram, validateVersion
+from pyworkflow.em.packages.eman2.eman2 import getEmanProgram, validateVersion, SCRATCHDIR
 from pyworkflow.em.packages.eman2.convert import createEmanProcess
 from pyworkflow.protocol.params import (PointerParam, FloatParam, IntParam, EnumParam,
                                         StringParam, BooleanParam)
@@ -219,7 +219,7 @@ resolution.
                                'filter.lowpass.tophat'],
                       label="Mode to Fourier method:", default=FILTER_NONE,
                       display=EnumParam.DISPLAY_COMBO)
-        form.addParallelSection(threads=4, mpi=0)
+        form.addParallelSection(threads=4, mpi=1)
     
     #--------------------------- INSERT steps functions ------------------------
     def _insertAllSteps(self):        
@@ -357,7 +357,10 @@ resolution.
     def _commonParams(self):
         args = " --targetres=%(resol)f --speed=%(speed)d --sym=%(sym)s --iter=%(numberOfIterations)d"
         args += " --mass=%(molMass)f --apix=%(samplingRate)f --classkeep=%(classKeep)f"
-        args += " --m3dkeep=%(m3dKeep)f --parallel=thread:%(threads)d --threads=%(threads)d"
+        if self.numberOfMpi > 1:
+            args += " --m3dkeep=%(m3dKeep)f --parallel=mpi:%(mpis)d:%(scratch)s --threads=%(threads)d"
+        else:
+            args += " --m3dkeep=%(m3dKeep)f --parallel=thread:%(threads)d --threads=%(threads)d"
         
         samplingRate = self._getInputParticles().getSamplingRate()
         params = {'resol': self.resol.get(),
@@ -368,7 +371,9 @@ resolution.
                   'samplingRate': samplingRate,
                   'classKeep': self.classKeep.get(),
                   'm3dKeep': self.m3dKeep.get(),
-                  'threads': self.numberOfThreads.get()
+                  'threads': self.numberOfThreads.get(),
+                  'mpis': self.numberOfMpi.get(),
+                  'scratch': SCRATCHDIR
                   }
         args = args % params
          

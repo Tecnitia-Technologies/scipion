@@ -26,7 +26,7 @@
 
 import os
 import pyworkflow.em as em
-from pyworkflow.em.packages.eman2.eman2 import getEmanProgram, validateVersion
+from pyworkflow.em.packages.eman2.eman2 import getEmanProgram, validateVersion, SCRATCHDIR
 from pyworkflow.protocol.params import (PointerParam, FloatParam, IntParam, EnumParam,
                                         StringParam, BooleanParam, LEVEL_ADVANCED)
 from pyworkflow.utils.path import cleanPattern, makePath

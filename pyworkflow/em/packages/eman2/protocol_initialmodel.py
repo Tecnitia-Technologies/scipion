@@ -96,7 +96,7 @@ class EmanProtInitModel(ProtInitialVolume):
             if self.numberOfThreads > 1:
                 args += ' --parallel=thread:%(threads)d'
             if self.numberOfMpi > 1:
-                args += ' --parallel=mpi:%(mpis)d'
+                args += ' --parallel=mpi:%(mpis)d:%(scratch)s'
 
         self._insertFunctionStep('createInitialModelStep', args % self._params)
     
@@ -170,7 +170,8 @@ class EmanProtInitModel(ProtInitialVolume):
                         'shrink': self.shrink.get(),
                         'symmetry': self.symmetry.get(),
                         'threads':self.numberOfThreads.get(),
-                        'mpis': self.numberOfMpi.get()
+                        'mpis': self.numberOfMpi.get(),
+                        'scratch': eman2.SCRATCHDIR
                        }
     
     def _isHighSym(self):
