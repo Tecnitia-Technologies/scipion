@@ -84,10 +84,16 @@ def buildRunCommand(programname, params, numberOfMpi, hostConfig=None, env=None)
             
         mpiFlags = '' if env is None else env.get('SCIPION_MPI_FLAGS', '') 
 
-        return hostConfig.mpiCommand.get() % {
-            'JOB_NODES': numberOfMpi,
-            'COMMAND': "%s `which %s` %s" % (mpiFlags, programname, params),
-        }
+        e2program = os.path.basename(programname.split()[1])
+
+        if e2program.startswith('e2'):
+            #FIXME: figure out how to pass mpiFlags to eman2
+            return '%s %s' % (programname, params)
+        else:
+            return hostConfig.mpiCommand.get() % {
+                'JOB_NODES': numberOfMpi,
+                'COMMAND': "%s `which %s` %s" % (mpiFlags, programname, params),
+            }
 
 
 def loadHostConfig(host='localhost'):

@@ -77,7 +77,7 @@ class EmanProtInitModel(ProtInitialVolume):
                            'Suggest using this option to shrink the input particles by an '
                            'integer amount prior to recontruction.' 
                            'Default = 1, no shrinking')
-        form.addParallelSection(threads=8, mpi=0)
+        form.addParallelSection(threads=8, mpi=1)
  
     #--------------------------- INSERT steps functions --------------------------------------------  
 
@@ -92,9 +92,11 @@ class EmanProtInitModel(ProtInitialVolume):
         if self.shrink > 1:
             args += ' --shrink=%(shrink)d'
         if not self._isHighSym():
-            args +=  ' --tries=%(numberOfModels)d'
+            args += ' --tries=%(numberOfModels)d'
             if self.numberOfThreads > 1:
                 args += ' --parallel=thread:%(threads)d'
+            if self.numberOfMpi > 1:
+                args += ' --parallel=mpi:%(mpis)d'
 
         self._insertFunctionStep('createInitialModelStep', args % self._params)
     
@@ -167,7 +169,8 @@ class EmanProtInitModel(ProtInitialVolume):
                         'numberOfModels': self.numberOfModels.get(),
                         'shrink': self.shrink.get(),
                         'symmetry': self.symmetry.get(),
-                        'threads':self.numberOfThreads.get()
+                        'threads':self.numberOfThreads.get(),
+                        'mpis': self.numberOfMpi.get()
                        }
     
     def _isHighSym(self):

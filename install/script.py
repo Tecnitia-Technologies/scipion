@@ -407,6 +407,10 @@ env.addPackage('eman', version='2.12',
                tar='eman2.12.linux64.tgz',
                commands=eman2_commands)
 
+env.addPackage('eman', version='2.2',
+               tar='eman2.2.linux64.tgz',
+               commands=eman2_commands)
+
 env.addPackage('frealign', version='9.07',
                tar='frealign_v9.07.tgz')
 

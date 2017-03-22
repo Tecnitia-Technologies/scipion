@@ -33,8 +33,12 @@ def getEnviron():
     """ Setup the environment variables needed to launch Eman. """
     environ = Environ(os.environ)
     EMAN2DIR = os.environ['EMAN2DIR']
-    pathList = [os.path.join(EMAN2DIR, d)
-                for d in ['lib', 'bin', 'extlib/site-packages']]
+    if getVersion() != '2.2':
+        pathList = [os.path.join(EMAN2DIR, d)
+                    for d in ['lib', 'bin', 'extlib/site-packages']]
+    else:
+        pathList = [os.path.join(EMAN2DIR, d)
+                    for d in ['lib', 'bin']]
 
     # This environment variable is used to setup OpenGL (Mesa)
     # library in remote desktops
@@ -45,8 +49,11 @@ def getEnviron():
             'PATH': join(EMAN2DIR, 'bin'),
             'LD_LIBRARY_PATH': os.pathsep.join(pathList),
             'PYTHONPATH': os.pathsep.join(pathList),
-            'EMAN_PYTHON': os.path.join(EMAN2DIR, 'Python/bin/python')
             }, position=Environ.REPLACE)
+
+    if getVersion() != '2.2':
+        environ.update({'EMAN_PYTHON': os.path.join(EMAN2DIR, 'Python/bin/python')
+                        }, position=Environ.END)
     return environ
 
 
@@ -59,7 +66,7 @@ def getVersion():
 
 
 def getSupportedVersions():
-    return ['2.11', '2.12']
+    return ['2.11', '2.12', '2.2']
 
 
 def validateVersion(protocol, errors):
@@ -74,7 +81,10 @@ def validateVersion(protocol, errors):
 
 def getEmanProgram(program):
     if not 'EMAN_PYTHON' in os.environ:
-        os.environ['EMAN_PYTHON'] = os.path.join(os.environ['EMAN2DIR'], 'Python/bin/python')
+        if getVersion() != '2.2':
+            os.environ['EMAN_PYTHON'] = os.path.join(os.environ['EMAN2DIR'], 'Python/bin/python')
+        else:
+            os.environ['EMAN_PYTHON'] = os.path.join(os.environ['EMAN2DIR'], 'bin/python')
     # For EMAN2 python scripts, join the path to bin
     # Comment this out cause there are eman programs that do not start with e2
     #if program.startswith('e2'):
@@ -86,5 +96,3 @@ def getEmanProgram(program):
     
 def getEmanCommand(program, args):    
     return getEmanProgram(program) + args
-    
-    
