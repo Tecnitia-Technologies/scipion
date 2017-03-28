@@ -33,6 +33,7 @@
 .pydevproject
 .classpath
 .idea
+.settings/
 
 # Scons auxiliary files
 .sconsign.dblite
