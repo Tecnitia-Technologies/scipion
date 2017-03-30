@@ -638,6 +638,14 @@ public:
             gaussian_K*exp(-sigma*(precomputed.u - c)*(precomputed.u - c)) +
             sqrt_K*exp(-sq*sqrt(precomputed.u)) -
             gaussian_K2*exp(-sigma2*(precomputed.u - c2)*(precomputed.u - c2)) << std::endl;
+
+//			double aux = precomputed.u - c;
+//			double aux2 = precomputed.u - c2;
+//
+//        	std::cout << std::setprecision(51) << base_line + gaussian_K << " * " << "exp(" << (0-sigma) * aux * aux << ")\n"
+//        			<< " + " << sqrt_K  << " * exp( " << (0-sq) * precomputed.u_sqrt << ")\n"
+//					<< (0 - gaussian_K2) << " * exp(" << (0-sigma2) * aux2 * aux2 << ")\n +"
+//					<< bgR1 * precomputed.u + bgR2 * precomputed.u2 + bgR3 * precomputed.u3;
         }
         double aux=precomputed.u - c;
         double aux2=precomputed.u - c2;

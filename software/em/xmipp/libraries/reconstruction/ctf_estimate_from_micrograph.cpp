@@ -363,7 +363,7 @@ void ProgCTFEstimateFromMicrograph::run()
         	bool skip = false;
         	int blocki=0, blockj=0;
         	// Compute the top-left corner of the piece ..........................
-        	if (psd_mode == OnePerParticle)
+        	if (psd_mode == OnePerParticle) // Aqui no entra
         	{
         		// Read position of the particle
         		posFile.getValue(MDL_X, piecej, iterPosFile.objId);
@@ -417,6 +417,7 @@ void ProgCTFEstimateFromMicrograph::run()
         			}
         			else
         			{
+        				// Aqui
         				transformer.completeFourierTransform(piece, Periodogram);
         				FFT_magnitude(Periodogram, mpsd);
         				FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mpsd)
