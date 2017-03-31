@@ -25,40 +25,11 @@
  *  All comments concerning this program package may be sent to the
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
-#ifndef _PROG_GPU_ESTIMATE_CTF
-#define _PROG_GPU_ESTIMATE_CTF
 
+#ifndef __CUDA_GPU_ESTIMATE_CTF__
+#define __CUDA_GPU_ESTIMATE_CTF__
 
-#include <data/xmipp_program.h>
+template <typename real>
+void cudaRunGpuEstimateCTF(real* mic, real* psd, int pieceDim, int div_Number, int div_NumberX, int div_NumberY);
 
-
-/**@defgroup Estimate CTF through the GPU
-   @ingroup ReconsLibrary */
-//@{
-
-class ProgGpuEstimateCTF: public XmippProgram
-{
-public:
-    /** Filename input micrograph */
-	FileName fnMic;
-    /** Filename output psd */
-	FileName fnOut;
-    /// Dimension of micrograph pieces
-	size_t pieceDim;
-    /** Overlap among pieces (0=No overlap, 1=Full overlap */
-    double overlap;
-public:
-    /// Read argument from command line
-    void readParams();
-
-    /// Show
-    void show();
-
-    /// Define parameters
-    void defineParams();
-
-    /** Run */
-    void run();
-};
-//@}
 #endif

@@ -28,14 +28,20 @@
 
 #include "gpu_estimate_ctf.h"
 
-//#include <reconstruction_cuda/cuda_gpu_rotate_image.h>
+#include <reconstruction_cuda/cuda_gpu_estimate_ctf.h>
 #include <data/xmipp_image.h>
-#include "data/xmipp_program.h"
+#include <data/xmipp_program.h>
+#include <data/normalize.h>
+
+// Prototypes
+void constructPieceSmoother(const MultidimArray<double> &piece,
+		MultidimArray<double> &pieceSmoother);
 
 // Read arguments ==========================================================
 void ProgGpuEstimateCTF::readParams()
 {
 	fnMic = getParam("-i");
+	fnOut = getParam("-o");
     pieceDim = getIntParam("--pieceDim");
     overlap = getDoubleParam("--overlap");
 }
@@ -49,7 +55,7 @@ void ProgGpuEstimateCTF::show()
 	<< "Input micrograph:          " << fnMic    << std::endl
 	<< "Piece dim:                 " << pieceDim << std::endl
 	<< "Piece overlap:             " << overlap  << std::endl
-    ;
+	;
 }
 
 // usage ===================================================================
@@ -57,54 +63,96 @@ void ProgGpuEstimateCTF::defineParams()
 {
     addUsageLine("Estimate Xmipp CTF model from micrograph with CUDA in GPU");
     addParamsLine("   -i <micrograph>        : Input micrograph");
+    addParamsLine("   -o <micrograph>        : Output psd");
     addParamsLine("  [--pieceDim <d=512>]    : Size of the piece");
     addParamsLine("  [--overlap <o=0.5>]     : Overlap (0=no overlap, 1=full overlap)");
 }
 
-//#define DEBUG
-// Compute distance --------------------------------------------------------
-void ProgGpuEstimateCTF::run()
-{
+
+void ProgGpuEstimateCTF::run() {
 	// Input
-    Image<float> Imic;
-    // Result
-    Image<float> psd;
+	Image<double> mic;
+	// Result
+	Image<double> psd;
+	psd().initZeros(pieceDim, pieceDim);
 
-    Imic.read(fnMic);
-    size_t Xdim, Ydim, Zdim, Ndim;
-    Imic.getDimensions(Xdim, Ydim, Zdim, Ndim);
-    float *Imic_ptr = MULTIDIM_ARRAY(Imic());
+	mic.read(fnMic);
 
-    // Compute the number of divisions --------------------------------------
-    int div_Number = 0;
-    int div_NumberX=1, div_NumberY=1;
-    div_NumberX = CEIL((double)Xdim / (pieceDim *(1-overlap))) - 1;
+	size_t Xdim, Ydim, Zdim, Ndim;
+	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
+
+	double *micPtr = MULTIDIM_ARRAY(mic());
+	double *psdPtr = MULTIDIM_ARRAY(psd());
+
+	// Compute the number of divisions --------------------------------------
+	int div_Number = 0;
+	int div_NumberX = 1, div_NumberY = 1;
+	div_NumberX = CEIL((double)Xdim / (pieceDim *(1-overlap))) - 1;
 	div_NumberY = CEIL((double)Ydim / (pieceDim *(1-overlap))) - 1;
-	div_Number = div_NumberX * div_NumberY;
+	div_Number  = div_NumberX * div_NumberY;
 
 	if (verbose) {
+		std::cout << "Xdim: " << Xdim << std::endl
+				  << "Ydim: " << Ydim << std::endl
+				  << "Zdim: " << Zdim << std::endl
+				  << "Ndim: " << Ndim << std::endl
+				  << std::endl
+		          << "div_NumberX: " << div_NumberX << std::endl
+				  << "div_NumberY: " << div_NumberY << std::endl
+			      << "div_Number : " << div_Number  << std::endl;
+
 		std::cout << "Computing model of the micrograph" << std::endl;
 		init_progress_bar(div_Number);
 	}
 
+	// Attenuate borders to avoid discontinuities
+//    MultidimArray<double> pieceSmoother;
+//    constructPieceSmoother(mic(), pieceSmoother);
 
-	// TODO
-	//	piece.statisticsAdjust(0, 1);
-	//	normalize_ramp(piece);
-
-	// Reservar espacio para una linea div_NumberX * sizeof(float)
-	// Reservar resultado 2 * div_NumberX * sizeof(float)
-	for (int line = 0; line < div_NumberY; ++line) {
-		// Subir a gpu la linea Imic_ptr[line * div_NumberX]
-		// Procesar linea
-		// traer resultado
-		// reducir resultado
-	}
-
-	// media
-	// psd *= (double) 1.0 / div_Number;
+	// Normalize image
+	mic().statisticsAdjust(0, 1);
+	normalize_ramp(mic());
+	//mic() *= pieceSmoother;
 
 
 
+	psd.write(fnOut);
+
+	std::cout << std::endl;
 }
 
+/* Construct piece smoother =============================================== */
+void constructPieceSmoother(const MultidimArray<double> &piece,
+		MultidimArray<double> &pieceSmoother) {
+	// Attenuate borders to avoid discontinuities
+	pieceSmoother.resizeNoCopy(piece);
+	pieceSmoother.initConstant(1);
+	pieceSmoother.setXmippOrigin();
+	double iHalfsize = 2.0 / YSIZE(pieceSmoother);
+	const double alpha = 0.025;
+	const double alpha1 = 1 - alpha;
+	const double ialpha = 1.0 / alpha;
+	for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother);
+			i++) {
+		double iFraction = fabs(i * iHalfsize);
+		if (iFraction > alpha1) {
+			double maskValue = 0.5
+					* (1 + cos(PI * ((iFraction - 1) * ialpha + 1)));
+			for (int j = STARTINGX(pieceSmoother);
+					j <= FINISHINGX(pieceSmoother); j++)
+				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
+		}
+	}
+
+	for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother);
+			j++) {
+		double jFraction = fabs(j * iHalfsize);
+		if (jFraction > alpha1) {
+			double maskValue = 0.5
+					* (1 + cos(PI * ((jFraction - 1) * ialpha + 1)));
+			for (int i = STARTINGY(pieceSmoother);
+					i <= FINISHINGY(pieceSmoother); i++)
+				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
+		}
+	}
+}
