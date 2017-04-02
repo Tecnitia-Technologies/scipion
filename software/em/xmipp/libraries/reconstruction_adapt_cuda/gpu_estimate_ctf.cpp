@@ -32,10 +32,7 @@
 #include <data/xmipp_image.h>
 #include <data/xmipp_program.h>
 #include <data/normalize.h>
-
-// Prototypes
-void constructPieceSmoother(const MultidimArray<double> &piece,
-		MultidimArray<double> &pieceSmoother);
+#include <data/multidim_array.h>
 
 // Read arguments ==========================================================
 void ProgGpuEstimateCTF::readParams()
@@ -69,12 +66,14 @@ void ProgGpuEstimateCTF::defineParams()
 }
 
 
+void transposeImage(Image<double> &im);
+
 void ProgGpuEstimateCTF::run() {
 	// Input
 	Image<double> mic;
 	// Result
 	Image<double> psd;
-	psd().initZeros(pieceDim, pieceDim);
+	psd().initZeros(pieceDim, pieceDim / 2);
 
 	mic.read(fnMic);
 
@@ -97,62 +96,57 @@ void ProgGpuEstimateCTF::run() {
 				  << "Zdim: " << Zdim << std::endl
 				  << "Ndim: " << Ndim << std::endl
 				  << std::endl
-		          << "div_NumberX: " << div_NumberX << std::endl
+				  << "div_NumberX: " << div_NumberX << std::endl
 				  << "div_NumberY: " << div_NumberY << std::endl
-			      << "div_Number : " << div_Number  << std::endl;
+				  << "div_Number : " << div_Number  << std::endl
+				  << std::endl
+				  << "pieceDim: " << pieceDim << std::endl
+				  << "overlap:  " << overlap  << std::endl;
 
 		std::cout << "Computing model of the micrograph" << std::endl;
-		init_progress_bar(div_Number);
+		//init_progress_bar(div_Number);
 	}
 
-	// Attenuate borders to avoid discontinuities
-//    MultidimArray<double> pieceSmoother;
-//    constructPieceSmoother(mic(), pieceSmoother);
+	// Test one piece
+	int N      = 42;
+	int step   = (int) ((1 - overlap) * pieceDim);
+	int blocki = (N-1) / div_NumberX;
+	int blockj = (N-1) % div_NumberX;
 
-	// Normalize image
-	mic().statisticsAdjust(0, 1);
-	normalize_ramp(mic());
-	//mic() *= pieceSmoother;
+	int piecei = blocki * step;
+	int piecej = blockj * step;
 
+	// test if the full piece is inside the micrograph
+	if (piecei + pieceDim > Ydim)
+		piecei = Ydim - pieceDim;
+	if (piecej + pieceDim > Xdim)
+		piecej = Xdim - pieceDim;
 
+	std::cout << "N     : " << N       << std::endl
+			  << "step  : " << step    << std::endl
+			  << "blocki: " << blocki  << std::endl
+			  << "blockj: " << blockj  << std::endl
+			  << "piecei: " << piecei  << std::endl
+			  << "piecej: " << piecej  << std::endl;
+
+	Image<double> piece;
+	piece().initZeros(pieceDim, pieceDim);
+	window2D(mic(), piece(), piecei, piecej, piecei + YSIZE(piece()) - 1, piecej + XSIZE(piece()) - 1);
+
+	// Normalize piece
+	piece().statisticsAdjust(0, 1);
+	normalize_ramp(piece());
+
+	piece.write("gpu_1_piece");
+	testOnePiece(piece().data, psdPtr, pieceDim);
 
 	psd.write(fnOut);
 
 	std::cout << std::endl;
 }
 
-/* Construct piece smoother =============================================== */
-void constructPieceSmoother(const MultidimArray<double> &piece,
-		MultidimArray<double> &pieceSmoother) {
-	// Attenuate borders to avoid discontinuities
-	pieceSmoother.resizeNoCopy(piece);
-	pieceSmoother.initConstant(1);
-	pieceSmoother.setXmippOrigin();
-	double iHalfsize = 2.0 / YSIZE(pieceSmoother);
-	const double alpha = 0.025;
-	const double alpha1 = 1 - alpha;
-	const double ialpha = 1.0 / alpha;
-	for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother);
-			i++) {
-		double iFraction = fabs(i * iHalfsize);
-		if (iFraction > alpha1) {
-			double maskValue = 0.5
-					* (1 + cos(PI * ((iFraction - 1) * ialpha + 1)));
-			for (int j = STARTINGX(pieceSmoother);
-					j <= FINISHINGX(pieceSmoother); j++)
-				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
-		}
-	}
-
-	for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother);
-			j++) {
-		double jFraction = fabs(j * iHalfsize);
-		if (jFraction > alpha1) {
-			double maskValue = 0.5
-					* (1 + cos(PI * ((jFraction - 1) * ialpha + 1)));
-			for (int i = STARTINGY(pieceSmoother);
-					i <= FINISHINGY(pieceSmoother); i++)
-				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
-		}
-	}
+void transposeImage(Image<double> &im) {
+	Matrix2D<double> m(im().ydim, im().xdim);
+	memcpy(m.mdata, im().data, im().ydim * im().xdim * sizeof(double));
+	memcpy(im().data, m.transpose().mdata, im().ydim * im().xdim * sizeof(double));
 }

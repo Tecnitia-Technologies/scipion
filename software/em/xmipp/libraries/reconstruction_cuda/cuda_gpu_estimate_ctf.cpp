@@ -80,15 +80,15 @@ const char* cudaGetCuFFTResultString(cufftResult_t r) {
 
 using namespace cuda_gpu_estimate_ctf_err;
 
-#define TEST(x) __e = x;\
+#define CU_CHK(x) __e = x;\
 if (__e != 0) { \
 std::cerr << "ERROR, line: " << __LINE__ << " File: " << __FILE__ << " Error: " <<  cudaGetErrorString(__e) << std::endl;\
-exit(-1); }
+exit(EXIT_FAILURE); }
 
-#define TEST_FFT(x) __fftr = x;\
+#define FFT_CHK(x) __fftr = x;\
 if (__fftr != 0) { \
 std::cerr << "FFT ERROR, line: " << __LINE__ << " File: " << __FILE__ << " Error: " <<  cudaGetCuFFTResultString(__fftr) << std::endl;\
-exit(-1); }
+exit(EXIT_FAILURE); }
 
 void cudaRunGpuEstimateCTF(double* mic, double* psd, int pieceDim,
 		int div_Number, int div_NumberX, int div_NumberY) {
@@ -101,25 +101,25 @@ void cudaRunGpuEstimateCTF(double* mic, double* psd, int pieceDim,
 
 	// Auxiliar host mem
 	double *partialPsd;
-	TEST(cudaMallocHost((void**) &partialPsd, numElemsPerLine * sizeof(double)));
+	CU_CHK(cudaMallocHost((void**) &partialPsd, numElemsPerLine * sizeof(double)));
 
 	// Reservar espacio para una linea
-	TEST(cudaMalloc((void**) &d_micLine, numElemsPerLine * sizeof(double)));
+	CU_CHK(cudaMalloc((void**) &d_micLine, numElemsPerLine * sizeof(double)));
 
 	// Reservar espacio auxiliar para FFT
-	TEST(cudaMalloc((void**) &d_fourier, numElemsPerLine * sizeof(cufftDoubleComplex)));
+	CU_CHK(cudaMalloc((void**) &d_fourier, numElemsPerLine * sizeof(cufftDoubleComplex)));
 
 	// Reservar resultado
-	TEST(cudaMalloc((void**) &d_resLine, numElemsPerLine * sizeof(double)));
+	CU_CHK(cudaMalloc((void**) &d_resLine, numElemsPerLine * sizeof(double)));
 
 	for (int line = 0; line < div_NumberY; ++line) {
 		// Subir a gpu la linea Imic_ptr[line * numElemsPerLine]
-		TEST(cudaMemcpy(d_micLine, mic + line * numElemsPerLine, numElemsPerLine, cudaMemcpyHostToDevice));
+		CU_CHK(cudaMemcpy(d_micLine, mic + line * numElemsPerLine, numElemsPerLine, cudaMemcpyHostToDevice));
 
 		// Procesar linea
 
 		// traer resultado
-		TEST(cudaMemcpy(partialPsd, d_resLine, numElemsPerLine, cudaMemcpyDeviceToHost));
+		CU_CHK(cudaMemcpy(partialPsd, d_resLine, numElemsPerLine, cudaMemcpyDeviceToHost));
 
 		// reducir resultado
 	}
@@ -131,57 +131,56 @@ void cudaRunGpuEstimateCTF(double* mic, double* psd, int pieceDim,
 	}
 
 	// Free device and auxiliar memory
-	TEST(cudaFree(d_micLine));
-	TEST(cudaFree(d_fourier));
-	TEST(cudaFree(d_resLine));
+	CU_CHK(cudaFree(d_micLine));
+	CU_CHK(cudaFree(d_fourier));
+	CU_CHK(cudaFree(d_resLine));
 
-	TEST(cudaFreeHost(partialPsd));
+	CU_CHK(cudaFreeHost(partialPsd));
 }
 
-void cudaRunGpuEstimateCTFTest(double* mic, double* psd, int pieceDim,
-		int div_Number, int div_NumberX, int div_NumberY, int size_x) {
-
+void testOnePiece(double* mic, double* psd, int pieceDim) {
 
 	// Device pointers
-	double *d_micLine, *d_resLine;
+	double *d_micLine;
 	cufftDoubleComplex* d_fourier; // Fourier intermediate result
 
 	// Auxiliar host mem
-	double *partialPsd;
-	TEST(cudaMallocHost((void**) &partialPsd, pieceDim * pieceDim * sizeof(double)));
+	cufftDoubleComplex *fourier;
+	CU_CHK(cudaMallocHost((void**) &fourier, pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
+	memset(fourier, 0.0,  pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex));
 
-	// Reservar espacio para una linea
-	TEST(cudaMalloc((void**) &d_micLine, pieceDim * pieceDim * sizeof(double)));
+	// Device memory allocation
+	CU_CHK(cudaMalloc((void**) &d_micLine, pieceDim * pieceDim                 * sizeof(double)));
+	CU_CHK(cudaMalloc((void**) &d_fourier, pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
 
-	// Reservar espacio auxiliar para FFT
-	TEST(cudaMalloc((void**) &d_fourier, pieceDim * pieceDim * sizeof(cufftDoubleComplex)));
+	// Offload to device
+	CU_CHK(cudaMemcpy(d_micLine, mic, pieceDim * pieceDim * sizeof(double), cudaMemcpyHostToDevice));
+	CU_CHK(cudaMemcpy(d_fourier, fourier, pieceDim * pieceDim * sizeof(double), cudaMemcpyHostToDevice));
 
-	// Reservar resultado
-	TEST(cudaMalloc((void**) &d_resLine, pieceDim * pieceDim * sizeof(double)));
+	// Fourier setup
+	cufftHandle plan;
+	FFT_CHK(cufftPlan2d(&plan, pieceDim, pieceDim, CUFFT_D2Z));
 
+	// Fourier execution
+	FFT_CHK(cufftExecD2Z(plan, d_micLine, d_fourier));
+	CU_CHK(cudaDeviceSynchronize());
 
+	// Read result from device
+	CU_CHK(cudaMemcpy(fourier, d_fourier, pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
 
-	// Subir a gpu la linea Imic_ptr[line * numElemsPerLine]
-	for (int i = 0; i < pieceDim; i++) {
-		TEST(cudaMemcpy(d_micLine + i * pieceDim, mic + i * size_x, pieceDim , cudaMemcpyHostToDevice));
-	}
-
-
-
-	// traer resultado
-	TEST(cudaMemcpy(partialPsd, d_resLine, pieceDim * pieceDim, cudaMemcpyDeviceToHost));
-
-
-	// media
-	// psd *= (double) 1.0 / div_Number;
-	for (int i = 0; i < pieceDim * pieceDim; i++) {
-		psd[i] *= (double) 1.0 / div_Number;
+	// CPU Magnitude
+	for (int i = 0; i < pieceDim * (pieceDim / 2 /* + 1 */); i++) {
+		double d = cuCimag(fourier[i]);
+		psd[i] = d;
+		if (d == 0.0)
+			std::cout << i << std:: endl;
 	}
 
 	// Free device and auxiliar memory
-	TEST(cudaFree(d_micLine));
-	TEST(cudaFree(d_fourier));
-	TEST(cudaFree(d_resLine));
+	CU_CHK(cudaFree(d_micLine));
+	CU_CHK(cudaFree(d_fourier));
 
-	TEST(cudaFreeHost(partialPsd));
+	CU_CHK(cudaFreeHost(fourier));
+
+	FFT_CHK(cufftDestroy(plan));
 }

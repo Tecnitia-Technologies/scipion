@@ -31,5 +31,6 @@
 
 template <typename real>
 void cudaRunGpuEstimateCTF(real* mic, real* psd, int pieceDim, int div_Number, int div_NumberX, int div_NumberY);
+void testOnePiece(double* mic, double* psd, int pieceDim);
 
 #endif
