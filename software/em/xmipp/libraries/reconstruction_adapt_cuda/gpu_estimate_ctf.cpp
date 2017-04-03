@@ -69,109 +69,141 @@ void ProgGpuEstimateCTF::defineParams()
 
 void transposeImage(Image<double> &im);
 
-void ProgGpuEstimateCTF::run() {
-	// Input
-	Image<double> mic;
-	// Result
-	Image<double> psd;
-	psd().initZeros(pieceDim, pieceDim);
+void ProgGpuEstimateCTF::toMagnitudeMatrix(std::complex<double>* f, double* mag) {
+	// CPU Magnitude
+	int fourierPos = 0;
+	for (int i = 0; i < pieceDim; i++) {
+		for (int j = i; j < pieceDim; j++) {
+			double d = std::abs(f[i]);
+			mag[i * pieceDim + j] = d * d * pieceDim * pieceDim;
+			fourierPos++;
+		}
+	}
+}
 
-	mic.read(fnMic);
+Image<double> ProgGpuEstimateCTF::extractPiece(const Image<double>& mic, int N,
+		int div_NumberX, size_t Ydim, size_t Xdim) {
 
-	size_t Xdim, Ydim, Zdim, Ndim;
+	int step = (int) (((1 - overlap) * pieceDim));
+	int blocki = (N - 1) / div_NumberX;
+	int blockj = (N - 1) % div_NumberX;
+	int piecei = blocki * step;
+	int piecej = blockj * step;
+	// test if the full piece is inside the micrograph
+	if (piecei + pieceDim > Ydim)
+		piecei = Ydim - pieceDim;
+
+	if (piecej + pieceDim > Xdim)
+		piecej = Xdim - pieceDim;
+
+//	std::cout << "N     : " << N      << std::endl
+//			  << "step  : " << step   << std::endl
+//			  << "blocki: " << blocki << std::endl
+//			  << "blockj: " << blockj << std::endl
+//			  << "piecei: " << piecei << std::endl
+//			  << "piecej: " << piecej << std::endl;
+
+	Image<double> piece;
+	piece().initZeros(pieceDim, pieceDim);
+	window2D(mic(), piece(), piecei, piecej, piecei + YSIZE(piece()) - 1,
+			piecej + XSIZE(piece()) - 1);
+	return piece;
+}
+
+void ProgGpuEstimateCTF::computeDivisions(const Image<double>& mic,
+		int& div_Number, int& div_NumberX, int& div_NumberY,
+		size_t& Xdim, size_t& Ydim,	size_t& Zdim, size_t& Ndim) {
+	div_Number = 0;
+	div_NumberX = 1, div_NumberY = 1;
+
 	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
 
-	double *micPtr = MULTIDIM_ARRAY(mic());
-	double *psdPtr = MULTIDIM_ARRAY(psd());
-
-	// Compute the number of divisions --------------------------------------
-	int div_Number = 0;
-	int div_NumberX = 1, div_NumberY = 1;
 	div_NumberX = CEIL((double)Xdim / (pieceDim *(1-overlap))) - 1;
 	div_NumberY = CEIL((double)Ydim / (pieceDim *(1-overlap))) - 1;
-	div_Number  = div_NumberX * div_NumberY;
+	div_Number = div_NumberX * div_NumberY;
 
 	if (verbose) {
 		std::cout << "Xdim: " << Xdim << std::endl
 				  << "Ydim: " << Ydim << std::endl
 				  << "Zdim: " << Zdim << std::endl
-				  << "Ndim: " << Ndim << std::endl
+				  << "Ndim: "	<< Ndim << std::endl
 				  << std::endl
 				  << "div_NumberX: " << div_NumberX << std::endl
 				  << "div_NumberY: " << div_NumberY << std::endl
-				  << "div_Number : " << div_Number  << std::endl
+				  << "div_Number : " << div_Number << std::endl
 				  << std::endl
 				  << "pieceDim: " << pieceDim << std::endl
 				  << "overlap:  " << overlap  << std::endl;
-
-		std::cout << "Computing model of the micrograph" << std::endl;
-		//init_progress_bar(div_Number);
 	}
+}
 
-	// Test one piece
-	int N      = 42;
-	int step   = (int) ((1 - overlap) * pieceDim);
-	int blocki = (N-1) / div_NumberX;
-	int blockj = (N-1) % div_NumberX;
+void ProgGpuEstimateCTF::run() {
+	// Input
+	Image<double> mic;
+	double *micPtr = MULTIDIM_ARRAY(mic());
+	mic.read(fnMic);
+	// Result
+	Image<double> psd;
+	double *psdPtr = MULTIDIM_ARRAY(psd());
+	psd().initZeros(pieceDim, pieceDim);
 
-	int piecei = blocki * step;
-	int piecej = blockj * step;
-
-	// test if the full piece is inside the micrograph
-	if (piecei + pieceDim > Ydim)
-		piecei = Ydim - pieceDim;
-	if (piecej + pieceDim > Xdim)
-		piecej = Xdim - pieceDim;
-
-	std::cout << "N     : " << N       << std::endl
-			  << "step  : " << step    << std::endl
-			  << "blocki: " << blocki  << std::endl
-			  << "blockj: " << blockj  << std::endl
-			  << "piecei: " << piecei  << std::endl
-			  << "piecej: " << piecej  << std::endl;
-
-	Image<double> piece;
-	piece().initZeros(pieceDim, pieceDim);
-	window2D(mic(), piece(), piecei, piecej, piecei + YSIZE(piece()) - 1, piecej + XSIZE(piece()) - 1);
-
-	// Normalize piece
-	piece().statisticsAdjust(0, 1);
-	normalize_ramp(piece());
-
-    piece.getDimensions(Xdim, Ydim, Zdim, Ndim);
-    std::cout << "Xdim: " << Xdim << std::endl
-				  << "Ydim: " << Ydim << std::endl
-				  << "Zdim: " << Zdim << std::endl
-				  << "Ndim: " << Ndim << std::endl;
+	// Compute the number of divisions --------------------------------------
+	size_t Xdim, Ydim, Zdim, Ndim;
+	int div_Number;
+	int div_NumberX, div_NumberY;
+ 	computeDivisions(mic, div_Number, div_NumberX, div_NumberY, Xdim, Ydim, Zdim, Ndim);
 	
-    piece.write("gpu_1_piece");
+ 	for(int N = 1; N <= div_Number; N++) {
+		// Extract piece
+		Image<double> piece = extractPiece(mic, N, div_NumberX, Ydim, Xdim);
+		// Normalize piece
+		piece().statisticsAdjust(0, 1);
+		normalize_ramp(piece());
 
-	// Test fourier
-    FourierTransformer transformer;
+		//piece.write("gpu_1_piece");
 
-	transformer.setReal(piece());
-	transformer.Transform(-1); // FFTW_FORWARD
-	std::complex<double> *fourierCpu = transformer.fFourier.data;
+		// Test fourier
+		Image<double> fourierMagCPU;
+		Image<double> fourierMagGPU;
 
-	double *fourier = (double*)malloc(pieceDim * (pieceDim / 2 + 1) * sizeof(double) * 2);
+		fourierMagCPU().initZeros(pieceDim, pieceDim);
+		fourierMagGPU().initZeros(pieceDim, pieceDim);
 
-    testOnePiece(piece().data, psdPtr, fourier, pieceDim);
-	psd.write("gpu_2_psd");
+		FourierTransformer transformer;
+	//	transformer.setNormalizationSign(0);
 
-	// CPU Magnitude
-	int fourierPos = 0;
-	for (int i = 0; i < pieceDim /* * (pieceDim / 2 /* + 1 )*/; i++) {
-		for (int j = i; j < pieceDim; j++) {
-			double d = std::abs(fourierCpu[i]);
-			psdPtr[i * pieceDim + j] = d * d * pieceDim * pieceDim;
-			fourierPos++;
+		// GPU FFT
+		std::complex<double> *fourierGPUptr = (std::complex<double>*) malloc(pieceDim * (pieceDim / 2 + 1) * sizeof(std::complex<double>));
+		gpuFFT(piece().data, fourierGPUptr, pieceDim);
+
+		// CPU FFT
+		transformer.setReal(piece());
+		transformer.Transform(-1); // FFTW_FORWARD
+		std::complex<double> *fourierCPUptr = transformer.fFourier.data;
+
+		// Normalize FFT
+		double isize = 1.0 / (pieceDim * pieceDim);
+		for (int i = 0; i < pieceDim * (pieceDim / 2 + 1); i++) {
+			fourierGPUptr[i].real(fourierGPUptr[i].real() * isize);
+			fourierGPUptr[i].imag(fourierGPUptr[i].imag() * isize);
 		}
-	}
-	psd.write("cpu_2_psd");
 
-	psd.write(fnOut);
+		// Check FFT
+		for (int i = 0; i < pieceDim * (pieceDim / 2 + 1); i++) {
+			if (std::abs(fourierGPUptr[i] - fourierCPUptr[i]) > 10e-12) {
+				std::cout << i << ", CPU: " << fourierCPUptr[i] << " GPU: " << fourierGPUptr[i] << std::endl;
+			}
+		}
 
-	std::cout << std::endl;
+		toMagnitudeMatrix(fourierCPUptr, fourierMagCPU().data);
+		toMagnitudeMatrix(fourierGPUptr, fourierMagGPU().data);
+
+		fourierMagCPU.write("cpu_mag");
+		fourierMagGPU.write("gpu_mag");
+ 	}
+
+
+	// psd.write(fnOut);
 }
 
 void transposeImage(Image<double> &im) {

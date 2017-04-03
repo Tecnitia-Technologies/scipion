@@ -59,6 +59,14 @@ public:
 
     /** Run */
     void run();
+
+private:
+	void toMagnitudeMatrix(std::complex<double>* f, double* mag);
+	Image<double> extractPiece(const Image<double>& mic, int N, int div_NumberX,
+			size_t Ydim, size_t Xdim);
+	void computeDivisions(const Image<double>& mic,
+			int& div_Number, int& div_NumberX, int& div_NumberY,
+			size_t& Xdim, size_t& Ydim, size_t& Zdim,size_t& Ndim);
 };
 //@}
 #endif

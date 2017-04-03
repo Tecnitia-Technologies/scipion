@@ -261,14 +261,6 @@ void ProgCTFEstimateFromMicrograph::run()
 		if (piecej + pieceDim > Xdim)
 			piecej = Xdim - pieceDim;
 
-		if (N == 42)
-			std::cout << "N     : " << N       << std::endl
-					  << "step  : " << step    << std::endl
-					  << "blocki: " << blocki  << std::endl
-					  << "blockj: " << blockj  << std::endl
-					  << "piecei: " << piecei  << std::endl
-					  << "piecej: " << piecej  << std::endl;
-
 		if (!skip)
 		{
 			std::cout << N << std::endl;
