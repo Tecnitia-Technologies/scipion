@@ -29,7 +29,8 @@
 #include <cuda.h>
 #include <cufft.h>
 
-#include <data/xmipp_fft.h>
+#include <data/xmipp_fftw.h>
+#include <data/xmipp_image.h>
 
 // Error handling
 #include <iostream>
