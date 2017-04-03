@@ -169,11 +169,30 @@ void testOnePiece(double* mic, double* psd, int pieceDim) {
 	CU_CHK(cudaMemcpy(fourier, d_fourier, pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
 
 	// CPU Magnitude
-	for (int i = 0; i < pieceDim * (pieceDim / 2 /* + 1 */); i++) {
-		double d = cuCimag(fourier[i]);
-		psd[i] = d;
-		if (d == 0.0)
-			std::cout << i << std:: endl;
+
+	int fourierPos = 0;
+	for (int i = 0; i < 0 /* * (pieceDim / 2 /* + 1 )*/; i++) {
+//		double d = cuCimag(fourier[i]);
+//		psd[i] = d;
+//		if (d == 0.0)
+//			std::cout << i << std:: endl;
+		for (int j = i; j < pieceDim; j++) {
+//			if (i > 200) {
+//				std::cerr << "pieceDim / 2: " << pieceDim / 2 << std::endl;
+//				std::cerr << "i: " << i << std::endl;
+//				std::cerr << "j: " << j << std::endl;
+//				double d = cuCabs(fourier[fourierPos]);
+//				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
+//				fourierPos++;
+//				std::cerr << "fourierPos: " << fourierPos << std::endl;
+//				std::cerr << "i * pieceDim + j: " << i * pieceDim + j
+//						<< std::endl;
+//			} else {
+				double d = cuCabs(fourier[fourierPos]);
+				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
+				fourierPos++;
+//			}
+		}
 	}
 
 	// Free device and auxiliar memory

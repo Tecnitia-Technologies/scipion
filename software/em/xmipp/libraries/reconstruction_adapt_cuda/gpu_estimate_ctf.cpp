@@ -73,7 +73,7 @@ void ProgGpuEstimateCTF::run() {
 	Image<double> mic;
 	// Result
 	Image<double> psd;
-	psd().initZeros(pieceDim, pieceDim / 2);
+	psd().initZeros(pieceDim, pieceDim);
 
 	mic.read(fnMic);
 
