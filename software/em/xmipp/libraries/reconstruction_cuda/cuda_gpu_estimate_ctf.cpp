@@ -29,6 +29,8 @@
 #include <cuda.h>
 #include <cufft.h>
 
+#include <data/xmipp_fft.h>
+
 // Error handling
 #include <iostream>
 
@@ -168,6 +170,28 @@ void testOnePiece(double* mic, double* psd, int pieceDim) {
 	// Read result from device
 	CU_CHK(cudaMemcpy(fourier, d_fourier, pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
 
+	// Test fourier
+    FourierTransformer transformer;
+
+
+	Image<double> piece;
+	piece().initZeros(pieceDim, pieceDim);
+	memcpy(piece().data, mic, pieceDim * pieceDim * sizeof(double));
+
+	transformer.setReal(piece());
+	transformer.Transform(-1); // FFTW_FORWARD
+
+	std::complex<double> *a = transformer.fFourier.data;
+
+//	for (int i = 0; i < pieceDim * (pieceDim / 2 + 1 ); i++) {
+//		double realGpu = cuCreal(fourier[i]);
+//		double imgGpu = cuCimag(fourier[i]);
+//		double realCpu = a[i].real();
+//		double imagCpu = a[i].imag();
+//
+//		if (realGpu - realCpu > 0.001 || )
+//	}
+
 	// CPU Magnitude
 
 	int fourierPos = 0;
@@ -181,14 +205,16 @@ void testOnePiece(double* mic, double* psd, int pieceDim) {
 				std::cerr << "pieceDim / 2: " << pieceDim / 2 << std::endl;
 				std::cerr << "i: " << i << std::endl;
 				std::cerr << "j: " << j << std::endl;
-				double d = cuCabs(fourier[fourierPos]);
+				//double d = cuCabs(fourier[fourierPos]);
+				double d = std::abs(a[fourierPos]);
 				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
 				fourierPos++;
 				std::cerr << "fourierPos: " << fourierPos << std::endl;
 				std::cerr << "i * pieceDim + j: " << i * pieceDim + j
 						<< std::endl;
 			} else {
-				double d = cuCabs(fourier[fourierPos]);
+				//double d = cuCabs(fourier[fourierPos]);
+				double d = std::abs(a[fourierPos]);
 				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
 				fourierPos++;
 			}
