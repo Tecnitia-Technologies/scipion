@@ -137,7 +137,13 @@ void ProgGpuEstimateCTF::run() {
 	piece().statisticsAdjust(0, 1);
 	normalize_ramp(piece());
 
-	piece.write("gpu_1_piece");
+    piece.getDimensions(Xdim, Ydim, Zdim, Ndim);
+    std::cout << "Xdim: " << Xdim << std::endl
+				  << "Ydim: " << Ydim << std::endl
+				  << "Zdim: " << Zdim << std::endl
+				  << "Ndim: " << Ndim << std::endl;
+	
+    piece.write("gpu_1_piece");
 	testOnePiece(piece().data, psdPtr, pieceDim);
 
 	psd.write(fnOut);

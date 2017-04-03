@@ -146,12 +146,12 @@ void testOnePiece(double* mic, double* psd, int pieceDim) {
 
 	// Auxiliar host mem
 	cufftDoubleComplex *fourier;
-	CU_CHK(cudaMallocHost((void**) &fourier, pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
-	memset(fourier, 0.0,  pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex));
+	CU_CHK(cudaMallocHost((void**) &fourier, pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
+	memset(fourier, 0.0,  pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex));
 
 	// Device memory allocation
 	CU_CHK(cudaMalloc((void**) &d_micLine, pieceDim * pieceDim                 * sizeof(double)));
-	CU_CHK(cudaMalloc((void**) &d_fourier, pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
+	CU_CHK(cudaMalloc((void**) &d_fourier, pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
 
 	// Offload to device
 	CU_CHK(cudaMemcpy(d_micLine, mic, pieceDim * pieceDim * sizeof(double), cudaMemcpyHostToDevice));
@@ -166,32 +166,32 @@ void testOnePiece(double* mic, double* psd, int pieceDim) {
 	CU_CHK(cudaDeviceSynchronize());
 
 	// Read result from device
-	CU_CHK(cudaMemcpy(fourier, d_fourier, pieceDim * (pieceDim / 2 /* + 1 */) * sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
+	CU_CHK(cudaMemcpy(fourier, d_fourier, pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
 
 	// CPU Magnitude
 
 	int fourierPos = 0;
-	for (int i = 0; i < 0 /* * (pieceDim / 2 /* + 1 )*/; i++) {
+	for (int i = 0; i < pieceDim /* * (pieceDim / 2 /* + 1 )*/; i++) {
 //		double d = cuCimag(fourier[i]);
 //		psd[i] = d;
 //		if (d == 0.0)
 //			std::cout << i << std:: endl;
 		for (int j = i; j < pieceDim; j++) {
-//			if (i > 200) {
-//				std::cerr << "pieceDim / 2: " << pieceDim / 2 << std::endl;
-//				std::cerr << "i: " << i << std::endl;
-//				std::cerr << "j: " << j << std::endl;
-//				double d = cuCabs(fourier[fourierPos]);
-//				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
-//				fourierPos++;
-//				std::cerr << "fourierPos: " << fourierPos << std::endl;
-//				std::cerr << "i * pieceDim + j: " << i * pieceDim + j
-//						<< std::endl;
-//			} else {
+			if (i > 400) {
+				std::cerr << "pieceDim / 2: " << pieceDim / 2 << std::endl;
+				std::cerr << "i: " << i << std::endl;
+				std::cerr << "j: " << j << std::endl;
 				double d = cuCabs(fourier[fourierPos]);
 				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
 				fourierPos++;
-//			}
+				std::cerr << "fourierPos: " << fourierPos << std::endl;
+				std::cerr << "i * pieceDim + j: " << i * pieceDim + j
+						<< std::endl;
+			} else {
+				double d = cuCabs(fourier[fourierPos]);
+				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
+				fourierPos++;
+			}
 		}
 	}
 
