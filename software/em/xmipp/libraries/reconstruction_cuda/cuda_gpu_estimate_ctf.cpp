@@ -29,9 +29,6 @@
 #include <cuda.h>
 #include <cufft.h>
 
-#include <data/xmipp_fftw.h>
-#include <data/xmipp_image.h>
-
 // Error handling
 #include <iostream>
 
@@ -141,15 +138,15 @@ void cudaRunGpuEstimateCTF(double* mic, double* psd, int pieceDim,
 	CU_CHK(cudaFreeHost(partialPsd));
 }
 
-void testOnePiece(double* mic, double* psd, int pieceDim) {
-
+void testOnePiece(double* mic, double* psd, double* f, int pieceDim) {
+	cufftDoubleComplex *fourier = (cufftDoubleComplex*) f;
 	// Device pointers
 	double *d_micLine;
 	cufftDoubleComplex* d_fourier; // Fourier intermediate result
 
 	// Auxiliar host mem
-	cufftDoubleComplex *fourier;
-	CU_CHK(cudaMallocHost((void**) &fourier, pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
+//	cufftDoubleComplex *fourier;
+//	CU_CHK(cudaMallocHost((void**) &fourier, pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex))); // Half of elements because of Hermitian Symmetry of Real value FT
 	memset(fourier, 0.0,  pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex));
 
 	// Device memory allocation
@@ -171,30 +168,7 @@ void testOnePiece(double* mic, double* psd, int pieceDim) {
 	// Read result from device
 	CU_CHK(cudaMemcpy(fourier, d_fourier, pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex), cudaMemcpyDeviceToHost));
 
-	// Test fourier
-    FourierTransformer transformer;
-
-
-	Image<double> piece;
-	piece().initZeros(pieceDim, pieceDim);
-	memcpy(piece().data, mic, pieceDim * pieceDim * sizeof(double));
-
-	transformer.setReal(piece());
-	transformer.Transform(-1); // FFTW_FORWARD
-
-	std::complex<double> *a = transformer.fFourier.data;
-
-//	for (int i = 0; i < pieceDim * (pieceDim / 2 + 1 ); i++) {
-//		double realGpu = cuCreal(fourier[i]);
-//		double imgGpu = cuCimag(fourier[i]);
-//		double realCpu = a[i].real();
-//		double imagCpu = a[i].imag();
-//
-//		if (realGpu - realCpu > 0.001 || )
-//	}
-
 	// CPU Magnitude
-
 	int fourierPos = 0;
 	for (int i = 0; i < pieceDim /* * (pieceDim / 2 /* + 1 )*/; i++) {
 //		double d = cuCimag(fourier[i]);
@@ -202,23 +176,21 @@ void testOnePiece(double* mic, double* psd, int pieceDim) {
 //		if (d == 0.0)
 //			std::cout << i << std:: endl;
 		for (int j = i; j < pieceDim; j++) {
-			if (i > 400) {
-				std::cerr << "pieceDim / 2: " << pieceDim / 2 << std::endl;
-				std::cerr << "i: " << i << std::endl;
-				std::cerr << "j: " << j << std::endl;
-				//double d = cuCabs(fourier[fourierPos]);
-				double d = std::abs(a[fourierPos]);
+//			if (i > 400) {
+//				std::cerr << "pieceDim / 2: " << pieceDim / 2 << std::endl;
+//				std::cerr << "i: " << i << std::endl;
+//				std::cerr << "j: " << j << std::endl;
+//				double d = cuCabs(fourier[fourierPos]);
+//				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
+//				fourierPos++;
+//				std::cerr << "fourierPos: " << fourierPos << std::endl;
+//				std::cerr << "i * pieceDim + j: " << i * pieceDim + j
+//						<< std::endl;
+//			} else {
+				double d = cuCabs(fourier[fourierPos]);
 				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
 				fourierPos++;
-				std::cerr << "fourierPos: " << fourierPos << std::endl;
-				std::cerr << "i * pieceDim + j: " << i * pieceDim + j
-						<< std::endl;
-			} else {
-				//double d = cuCabs(fourier[fourierPos]);
-				double d = std::abs(a[fourierPos]);
-				psd[i * pieceDim + j] = d * d * pieceDim * pieceDim;
-				fourierPos++;
-			}
+//			}
 		}
 	}
 

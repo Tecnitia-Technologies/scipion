@@ -29,6 +29,7 @@
 #include "gpu_estimate_ctf.h"
 
 #include <reconstruction_cuda/cuda_gpu_estimate_ctf.h>
+#include <data/xmipp_fftw.h>
 #include <data/xmipp_image.h>
 #include <data/xmipp_program.h>
 #include <data/normalize.h>
@@ -144,7 +145,29 @@ void ProgGpuEstimateCTF::run() {
 				  << "Ndim: " << Ndim << std::endl;
 	
     piece.write("gpu_1_piece");
-	testOnePiece(piece().data, psdPtr, pieceDim);
+
+	// Test fourier
+    FourierTransformer transformer;
+
+	transformer.setReal(piece());
+	transformer.Transform(-1); // FFTW_FORWARD
+	std::complex<double> *fourierCpu = transformer.fFourier.data;
+
+	double *fourier = (double*)malloc(pieceDim * (pieceDim / 2 + 1) * sizeof(double) * 2);
+
+    testOnePiece(piece().data, psdPtr, fourier, pieceDim);
+	psd.write("gpu_2_psd");
+
+	// CPU Magnitude
+	int fourierPos = 0;
+	for (int i = 0; i < pieceDim /* * (pieceDim / 2 /* + 1 )*/; i++) {
+		for (int j = i; j < pieceDim; j++) {
+			double d = std::abs(fourierCpu[i]);
+			psdPtr[i * pieceDim + j] = d * d * pieceDim * pieceDim;
+			fourierPos++;
+		}
+	}
+	psd.write("cpu_2_psd");
 
 	psd.write(fnOut);
 
