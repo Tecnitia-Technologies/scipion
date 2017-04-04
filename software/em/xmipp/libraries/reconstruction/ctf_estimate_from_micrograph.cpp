@@ -172,27 +172,39 @@ void constructPieceSmoother(const MultidimArray<double> &piece,
     }
 }
 
-/* Main ==================================================================== */
-//#define DEBUG
-void ProgCTFEstimateFromMicrograph::run()
-{
-    // Open input files -----------------------------------------------------
-    // Open coordinates
-    MetaData posFile;
-    if (fn_pos != "")
-        posFile.read(fn_pos);
-    MDIterator iterPosFile(posFile);
+Image<double> ProgCTFEstimateFromMicrograph::extractPiece(const Image<double>& mic, int N,
+		int div_NumberX, size_t Ydim, size_t Xdim) {
 
-    // Open the micrograph --------------------------------------------------
-    Image<double> M_in;
-    size_t Ndim, Zdim, Ydim , Xdim; // Micrograph dimensions
+	int step = (int) (((1 - overlap) * pieceDim));
+	int blocki = (N - 1) / div_NumberX;
+	int blockj = (N - 1) % div_NumberX;
+	int piecei = blocki * step;
+	int piecej = blockj * step;
+	// test if the full piece is inside the micrograph
+	if (piecei + pieceDim > Ydim)
+		piecei = Ydim - pieceDim;
 
-    M_in.read(fn_micrograph);
-    M_in.getDimensions(Xdim, Ydim, Zdim, Ndim);
+	if (piecej + pieceDim > Xdim)
+		piecej = Xdim - pieceDim;
 
-    // Compute the number of divisions --------------------------------------
-    int div_Number = 0;
-    int div_NumberX=1, div_NumberY=1;
+//	std::cout << "N     : " << N      << std::endl
+//			  << "step  : " << step   << std::endl
+//			  << "blocki: " << blocki << std::endl
+//			  << "blockj: " << blockj << std::endl
+//			  << "piecei: " << piecei << std::endl
+//			  << "piecej: " << piecej << std::endl;
+
+	Image<double> piece;
+	piece().initZeros(pieceDim, pieceDim);
+	window2D(mic(), piece(), piecei, piecej, piecei + YSIZE(piece()) - 1,
+			piecej + XSIZE(piece()) - 1);
+	return piece;
+}
+
+void ProgCTFEstimateFromMicrograph::computeDivisions(const Image<double>& mic,
+		int& div_Number, int& div_NumberX, int& div_NumberY,
+		size_t& Xdim, size_t& Ydim,	size_t& Zdim, size_t& Ndim) {
+	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
 
 	div_NumberX = CEIL((double)Xdim / (pieceDim *(1-overlap))) - 1;
 	div_NumberY = CEIL((double)Ydim / (pieceDim *(1-overlap))) - 1;
@@ -202,15 +214,37 @@ void ProgCTFEstimateFromMicrograph::run()
 		std::cout << "Xdim: " << Xdim << std::endl
 				  << "Ydim: " << Ydim << std::endl
 				  << "Zdim: " << Zdim << std::endl
-				  << "Ndim: " << Ndim << std::endl
+				  << "Ndim: "	<< Ndim << std::endl
 				  << std::endl
 				  << "div_NumberX: " << div_NumberX << std::endl
 				  << "div_NumberY: " << div_NumberY << std::endl
-				  << "div_Number : " << div_Number  << std::endl
+				  << "div_Number : " << div_Number << std::endl
 				  << std::endl
 				  << "pieceDim: " << pieceDim << std::endl
 				  << "overlap:  " << overlap  << std::endl;
+	}
+}
 
+/* Main ==================================================================== */
+//#define DEBUG
+void ProgCTFEstimateFromMicrograph::run()
+{
+    // Open input files -----------------------------------------------------
+    MetaData posFile;
+    if (fn_pos != "")
+        posFile.read(fn_pos);
+    MDIterator iterPosFile(posFile);
+
+    // Open the micrograph --------------------------------------------------
+    Image<double> M_in;
+    M_in.read(fn_micrograph);
+
+    // Compute the number of divisions --------------------------------------
+    size_t Ndim, Zdim, Ydim , Xdim; // Micrograph dimensions
+    int div_Number, div_NumberX, div_NumberY;
+ 	computeDivisions(M_in, div_Number, div_NumberX, div_NumberY, Xdim, Ydim, Zdim, Ndim);
+
+	if (verbose) {
 		std::cout << "Computing model of the micrograph" << std::endl;
 		//init_progress_bar(div_Number);
 	}
@@ -218,81 +252,48 @@ void ProgCTFEstimateFromMicrograph::run()
     // Process each piece ---------------------------------------------------
     Image<double> psd_avg, psd;
     MultidimArray<std::complex<double> > Periodogram;
-    MultidimArray<double> piece(pieceDim, pieceDim);
-    psd().resizeNoCopy(piece);
-    MultidimArray<double> &mpsd = psd();
+    Image<double> piece(pieceDim, pieceDim);
+    psd().resizeNoCopy(piece());
     double pieceDim2 = pieceDim * pieceDim;
 
     // Attenuate borders to avoid discontinuities
     MultidimArray<double> pieceSmoother;
-    constructPieceSmoother(piece, pieceSmoother);
+    constructPieceSmoother(piece(), pieceSmoother);
 
     if (verbose) {
-        std::cerr << "Computing models of each piece ...\n";
-        init_progress_bar(div_Number);
+    	std::cerr << "Computing models of each piece ...\n";
+//      init_progress_bar(div_Number);
     }
 
-    size_t piecei = 0, piecej = 0; // top-left corner of the current piece
     FourierTransformer transformer;
-    int actualDiv_Number = 0;
-
-	std::cout << div_Number << std::endl;
 	for (int N = 1; N <= div_Number; N++)
 	{
-		bool skip = false;
-		int blocki=0, blockj=0;
-		// Compute the top-left corner of the piece ..........................
+		piece = extractPiece(M_in, N, div_NumberX, Ydim, Xdim);
+		std::cout << N << std::endl;
+		piece().statisticsAdjust(0, 1);
+		normalize_ramp(piece());
+		//piece *= pieceSmoother;
 
-		int step = pieceDim;
-		if (psd_mode == OnePerMicrograph)
-			step = (int) ((1 - overlap) * step);
-		blocki = (N - 1) / div_NumberX;
-		blockj = (N - 1) % div_NumberX;
-		if (blocki < skipBorders || blockj < skipBorders
-				|| blocki > (div_NumberY - skipBorders - 1)
-				|| blockj > (div_NumberX - skipBorders - 1))
-			skip = true;
-		piecei = blocki * step;
-		piecej = blockj * step;
+		// Estimate the power spectrum .......................................
+		transformer.completeFourierTransform(piece(), Periodogram);
+		FFT_magnitude(Periodogram, psd());
+		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(psd())
+			DIRECT_MULTIDIM_ELEM(psd(),n) *= DIRECT_MULTIDIM_ELEM(psd(), n) * pieceDim2;
 
-		// test if the full piece is inside the micrograph
-		if (piecei + pieceDim > Ydim)
-			piecei = Ydim - pieceDim;
-		if (piecej + pieceDim > Xdim)
-			piecej = Xdim - pieceDim;
+		// Compute average and standard deviation
+		if (XSIZE(psd_avg()) != XSIZE(psd()))
+			psd_avg() = psd();
+		else
+			psd_avg() += psd();
 
-		if (!skip)
-		{
-			std::cout << N << std::endl;
-			// Extract micrograph piece ..........................................
-			window2D( M_in(), piece, piecei, piecej, piecei + YSIZE(piece) - 1, piecej + XSIZE(piece) - 1);
-			piece.statisticsAdjust(0, 1);
-			normalize_ramp(piece);
-			//piece *= pieceSmoother;
-
-			// Estimate the power spectrum .......................................
-			transformer.completeFourierTransform(piece, Periodogram);
-			FFT_magnitude(Periodogram, mpsd);
-			FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mpsd)
-				DIRECT_MULTIDIM_ELEM(mpsd,n) *= DIRECT_MULTIDIM_ELEM(mpsd, n) * pieceDim2;
-
-			actualDiv_Number += 1;
-			// Compute average and standard deviation
-			if (XSIZE(psd_avg()) != XSIZE(mpsd))
-				psd_avg() = mpsd;
-			else
-				psd_avg() += mpsd;
-
-			if (N == 42) {
-				Image<double> p;
-
-				p() = mpsd;
-				p.write("cpu_1_psd");
-
-				p() = piece;
-				p.write("cpu_1_piece");
-			}
-		}
+//		if (N == 42) {
+//			Image<double> p;
+//
+//			p() = mpsd;
+//			p.write("cpu_1_psd");
+//
+//			piece.write("cpu_1_piece");
+//		}
 //		if (verbose)
 //			progress_bar(N+1);
 	}
@@ -301,11 +302,10 @@ void ProgCTFEstimateFromMicrograph::run()
 //        progress_bar(div_Number);
 
     // Average
-    const MultidimArray<double> &mpsd_avg = psd_avg();
-	double idiv_Number = 1.0 / actualDiv_Number;
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(mpsd_avg)
+	double idiv_Number = 1.0 / div_Number;
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(psd_avg())
 	{
-		DIRECT_MULTIDIM_ELEM(mpsd_avg,n)*=idiv_Number;
+		DIRECT_MULTIDIM_ELEM(psd_avg(),n)*=idiv_Number;
 	}
 
 	psd_avg.write("psdAveraged.psd");

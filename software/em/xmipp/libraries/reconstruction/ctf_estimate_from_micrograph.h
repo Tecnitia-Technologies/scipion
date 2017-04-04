@@ -88,6 +88,13 @@ public:
 
     /// Process the whole thing
     void run();
+
+private:
+	Image<double> extractPiece(const Image<double>& mic, int N, int div_NumberX,
+			size_t Ydim, size_t Xdim);
+	void computeDivisions(const Image<double>& mic,
+			int& div_Number, int& div_NumberX, int& div_NumberY,
+			size_t& Xdim, size_t& Ydim, size_t& Zdim,size_t& Ndim);
 };
 
 /** Fast estimate enhanced PSD.

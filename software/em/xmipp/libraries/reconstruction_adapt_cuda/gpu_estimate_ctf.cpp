@@ -1,8 +1,8 @@
 /***************************************************************************
  *
- * Authors:     Miguel Ascanio Gómez (miguel.ascanio@tecnitia.com)
- * 				Alberto Casas Ortiz (alberto.casas@tecnitia.com)
- * 				David Gómez Blanco (david.gomez@tecnitia.com)
+ * Authors:     Miguel Ascanio Gómez 	(miguel.ascanio@tecnitia.com)
+ * 				Alberto Casas Ortiz 	(alberto.casas@tecnitia.com)
+ * 				David Gómez Blanco 		(david.gomez@tecnitia.com)
  * 				Carlos Oscar S. Sorzano (coss@cnb.csic.es)
  *
  * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
@@ -65,9 +65,6 @@ void ProgGpuEstimateCTF::defineParams()
     addParamsLine("  [--pieceDim <d=512>]    : Size of the piece");
     addParamsLine("  [--overlap <o=0.5>]     : Overlap (0=no overlap, 1=full overlap)");
 }
-
-
-void transposeImage(Image<double> &im);
 
 void ProgGpuEstimateCTF::toMagnitudeMatrix(std::complex<double>* f, double* mag) {
 	// CPU Magnitude
@@ -204,10 +201,4 @@ void ProgGpuEstimateCTF::run() {
 
 
 	// psd.write(fnOut);
-}
-
-void transposeImage(Image<double> &im) {
-	Matrix2D<double> m(im().ydim, im().xdim);
-	memcpy(m.mdata, im().data, im().ydim * im().xdim * sizeof(double));
-	memcpy(im().data, m.transpose().mdata, im().ydim * im().xdim * sizeof(double));
 }
