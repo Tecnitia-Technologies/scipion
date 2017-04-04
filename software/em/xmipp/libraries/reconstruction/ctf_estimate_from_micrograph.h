@@ -95,6 +95,8 @@ private:
 	void computeDivisions(const Image<double>& mic,
 			int& div_Number, int& div_NumberX, int& div_NumberY,
 			size_t& Xdim, size_t& Ydim, size_t& Zdim,size_t& Ndim);
+	void orgPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece);
+	void testPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece);
 };
 
 /** Fast estimate enhanced PSD.

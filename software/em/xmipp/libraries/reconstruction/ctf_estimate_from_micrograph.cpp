@@ -36,6 +36,120 @@
 #include <data/basic_pca.h>
 #include <data/normalize.h>
 
+
+
+
+#include <cmath>
+
+#include <sys/time.h>
+#include <string>
+
+class TicToc {
+
+public:
+	timespec start, end;
+
+	time_t sec;
+	long nsec;
+
+	void diff();
+
+	TicToc() {
+	}
+
+	void tic();
+	void toc();
+
+	void getNsecsRaw(long& sec, long& nsec) const;
+	std::string getNsecsFormatted() const;
+
+	long getUsecsRaw() const;
+	std::string getUsecsFormatted() const;
+
+	long getMillisRaw() const;
+	std::string getMillisFormatted() const;
+
+	long getSecsRaw() const;
+	std::string getSecsFormatted() const;
+};
+
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <iomanip>
+using namespace std;
+
+std::ostream& operator<<(std::ostream& out, const TicToc& f) {
+	string s;
+	std::stringstream ss;
+	ss << setw(9) << setfill('0') << f.nsec;
+	s = ss.str();
+	for (int i = s.size() - 3; i > 0; i -= 3) {
+		s.insert(s.begin() + i, ',');
+	}
+
+	return out << "Secs: " << f.sec << " Nsecs: " << setw(11) << s;
+}
+
+inline void TicToc::tic() {
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
+}
+
+inline void TicToc::toc() {
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
+	diff();
+}
+
+void TicToc::getNsecsRaw(long& sec, long& nsec) const {
+	sec = this->sec;
+	nsec = this->nsec;
+}
+
+std::string TicToc::getNsecsFormatted() const {
+	return "";
+}
+
+long TicToc::getUsecsRaw() const {
+	return sec * 1000000 + nsec / 1000;
+}
+
+std::string TicToc::getUsecsFormatted() const {
+	return "";
+}
+
+long TicToc::getMillisRaw() const {
+	return sec * 1000 + nsec / 1000000;
+}
+std::string TicToc::getMillisFormatted() const {
+	return "";
+}
+
+long TicToc::getSecsRaw() const {
+	return this->sec;
+}
+
+std::string TicToc::getSecsFormatted() const {
+	string s;
+	std::stringstream ss;
+	ss << setw(6) << setfill('0') << this->sec;
+	s = ss.str();
+	for (int i = s.size() - 3; i > 0; i -= 3) {
+		s.insert(s.begin() + i, ',');
+	}
+
+	return s;
+}
+
+void TicToc::diff() {
+	if ((end.tv_nsec - start.tv_nsec) < 0) {
+		sec = end.tv_sec - start.tv_sec - 1;
+		nsec = 1000000000 + end.tv_nsec - start.tv_nsec;
+	} else {
+		sec = end.tv_sec - start.tv_sec;
+		nsec = end.tv_nsec - start.tv_nsec;
+	}
+}
+
 /* Read parameters ========================================================= */
 ProgCTFEstimateFromMicrograph::ProgCTFEstimateFromMicrograph()
 {
@@ -225,6 +339,69 @@ void ProgCTFEstimateFromMicrograph::computeDivisions(const Image<double>& mic,
 	}
 }
 
+void expandFourier(const MultidimArray<double>& fFourier, MultidimArray<double>& V) {
+    double* ptrDest, *ptrSource;
+	FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY2D(V)
+    {
+        ptrDest = (double*)&DIRECT_A2D_ELEM(V,i,j);
+        if (j < XSIZE(fFourier))
+        {
+            ptrSource = (double*)&DIRECT_A2D_ELEM(fFourier,i,j);
+            *ptrDest  = *ptrSource;
+        }
+        else
+        {
+            ptrSource = (double*)&DIRECT_A2D_ELEM(fFourier,
+                                                    (YSIZE(V) - i) % YSIZE(V),
+                                                     XSIZE(V) - j);
+            *ptrDest  = *ptrSource;
+        }
+    }
+}
+
+
+/* TEST ==================================================================== */
+
+void ProgCTFEstimateFromMicrograph::orgPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece) {
+	piece = extractPiece(M_in, N, div_NumberX, Ydim, Xdim);
+	piece().statisticsAdjust(0, 1);
+	normalize_ramp(piece());
+	piece() *= pieceSmoother;
+}
+
+void orgFourier(Image<double>& piece, FourierTransformer& transformer, MultidimArray<std::complex<double> >& Periodogram) {
+	transformer.completeFourierTransform(piece(), Periodogram);
+}
+
+void orgPost(MultidimArray<std::complex<double> >& Periodogram, double pieceDim2, Image<double>& orgPsd) {
+	FFT_magnitude(Periodogram, orgPsd());
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(orgPsd())
+		DIRECT_MULTIDIM_ELEM(orgPsd(),n) *= DIRECT_MULTIDIM_ELEM(orgPsd(), n) * pieceDim2;
+}
+
+void ProgCTFEstimateFromMicrograph::testPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece) {
+	piece = extractPiece(M_in, N, div_NumberX, Ydim, Xdim);
+	piece().statisticsAdjust(0, 1);
+	normalize_ramp(piece());
+	piece() *= pieceSmoother;
+}
+
+void testFourier(Image<double>& piece, FourierTransformer& transformer) {
+	transformer.setReal(piece());
+	transformer.Transform(FFTW_FORWARD); // FFTW_FORWARD
+}
+
+void testPost(std::complex<double>* fourierCPUptr, int pieceDim, Image<double>& fastProcIntermediateResult, Image<double>& testPsd) {
+	int size = pieceDim * (pieceDim / 2 + 1);
+	for (int i = 0; i < size; i++) {
+		double real = fourierCPUptr[i].real();
+		double imag = fourierCPUptr[i].imag();
+		fastProcIntermediateResult().data[i] = (real * real + imag * imag);
+	}
+	// Expand
+	expandFourier(fastProcIntermediateResult(), testPsd());
+}
+
 /* Main ==================================================================== */
 //#define DEBUG
 void ProgCTFEstimateFromMicrograph::run()
@@ -250,10 +427,13 @@ void ProgCTFEstimateFromMicrograph::run()
 	}
 
     // Process each piece ---------------------------------------------------
-    Image<double> psd_avg, psd;
+    Image<double> orgPsdAvg, orgPsd;
+    Image<double> testPsdAvg, testPsd, fastProcIntermediateResult;
     MultidimArray<std::complex<double> > Periodogram;
     Image<double> piece(pieceDim, pieceDim);
-    psd().resizeNoCopy(piece());
+    orgPsd().resizeNoCopy(piece());
+    testPsd().resizeNoCopy(piece());
+    fastProcIntermediateResult().resize(pieceDim, pieceDim / 2 + 1);
     double pieceDim2 = pieceDim * pieceDim;
 
     // Attenuate borders to avoid discontinuities
@@ -266,49 +446,80 @@ void ProgCTFEstimateFromMicrograph::run()
     }
 
     FourierTransformer transformer;
+
+    TicToc t;
+    t.tic();
+    // ProcessOrgPsd
 	for (int N = 1; N <= div_Number; N++)
 	{
-		piece = extractPiece(M_in, N, div_NumberX, Ydim, Xdim);
-		std::cout << N << std::endl;
-		piece().statisticsAdjust(0, 1);
-		normalize_ramp(piece());
-		//piece *= pieceSmoother;
+		orgPre(M_in, N, div_NumberX, Ydim, Xdim, pieceSmoother, piece);
 
-		// Estimate the power spectrum .......................................
-		transformer.completeFourierTransform(piece(), Periodogram);
-		FFT_magnitude(Periodogram, psd());
-		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(psd())
-			DIRECT_MULTIDIM_ELEM(psd(),n) *= DIRECT_MULTIDIM_ELEM(psd(), n) * pieceDim2;
+		orgFourier(piece, transformer, Periodogram);
+
+		orgPost(Periodogram, pieceDim2, orgPsd);
 
 		// Compute average and standard deviation
-		if (XSIZE(psd_avg()) != XSIZE(psd()))
-			psd_avg() = psd();
+		if (XSIZE(orgPsdAvg()) != XSIZE(orgPsd()))
+			orgPsdAvg() = orgPsd();
 		else
-			psd_avg() += psd();
-
-//		if (N == 42) {
-//			Image<double> p;
-//
-//			p() = mpsd;
-//			p.write("cpu_1_psd");
-//
-//			piece.write("cpu_1_piece");
-//		}
+			orgPsdAvg() += orgPsd();
 //		if (verbose)
 //			progress_bar(N+1);
 	}
+
+	t.toc();
+	std::cout << "Org time: " << t << std::endl;
+
+	t.tic();
+    // ProcessTestPsd
+	for (int N = 1; N <= div_Number; N++)
+	{
+		testPre(M_in, N, div_NumberX, Ydim, Xdim, pieceSmoother, piece);
+
+		// Process FFT
+		testFourier(piece, transformer);
+		std::complex<double> *fourierCPUptr = transformer.fFourier.data;
+
+		// Process fast
+		testPost(fourierCPUptr, pieceDim, fastProcIntermediateResult, testPsd);
+
+		// Compute average and standard deviation
+		if (XSIZE(testPsdAvg()) != XSIZE(testPsd()))
+			testPsdAvg() = testPsd();
+		else
+			testPsdAvg() += testPsd();
+//		if (verbose)
+//			progress_bar(N+1);
+	}
+	t.toc();
+	std::cout << "Test time: " << t << std::endl;
 
 //    if (verbose)
 //        progress_bar(div_Number);
 
     // Average
 	double idiv_Number = 1.0 / div_Number;
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(psd_avg())
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(orgPsdAvg())
 	{
-		DIRECT_MULTIDIM_ELEM(psd_avg(),n)*=idiv_Number;
+		DIRECT_MULTIDIM_ELEM(orgPsdAvg(),n)*=idiv_Number;
 	}
 
-	psd_avg.write("psdAveraged.psd");
+	idiv_Number = 1.0 / (div_Number * pieceDim * (pieceDim / 2 + 1));
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(testPsdAvg())
+	{
+		DIRECT_MULTIDIM_ELEM(testPsdAvg(),n)*=idiv_Number;
+	}
+
+	// TEST EQ
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(testPsdAvg()) {
+		if (DIRECT_MULTIDIM_ELEM(testPsdAvg(),n) - DIRECT_MULTIDIM_ELEM(orgPsdAvg(),n) > 10e-12) {
+			std::cout << "i: " << n << " " << DIRECT_MULTIDIM_ELEM(orgPsdAvg(),n) << ", " << DIRECT_MULTIDIM_ELEM(testPsdAvg(),n) << std::endl;
+		}
+	}
+
+
+	orgPsdAvg.write("psdOrgAveraged.psd");
+	testPsdAvg.write("psdTestAveraged.psd");
 }
 
 /* Fast estimate of PSD --------------------------------------------------- */
