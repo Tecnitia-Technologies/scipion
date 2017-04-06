@@ -33,6 +33,8 @@
 
 template <typename real>
 void cudaRunGpuEstimateCTF(real* mic, real* psd, int pieceDim, int div_Number, int div_NumberX, int div_NumberY);
+
 void gpuFFT(double* mic, std::complex<double>* f, int pieceDim);
+void gpuFFT(float* mic, std::complex<float>* f, int pieceDim);
 
 #endif

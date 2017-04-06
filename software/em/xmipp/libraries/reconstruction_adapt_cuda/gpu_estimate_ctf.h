@@ -36,6 +36,16 @@
    @ingroup ReconsLibrary */
 //@{
 
+//#define CU_ESTIMATE_CTF_USE_FLOAT
+
+#ifdef CU_ESTIMATE_CTF_USE_FLOAT
+typedef float real_t;
+typedef std::complex_t<float> complex_t;
+#else
+typedef double real_t;
+typedef std::complex<double> complex_t;
+#endif
+
 class ProgGpuEstimateCTF: public XmippProgram
 {
 public:
@@ -61,12 +71,14 @@ public:
     void run();
 
 private:
-	void toMagnitudeMatrix(std::complex<double>* f, double* mag);
-	Image<double> extractPiece(const Image<double>& mic, int N, int div_NumberX,
-			size_t Ydim, size_t Xdim);
-	void computeDivisions(const Image<double>& mic,
+	template <typename T>
+	void extractPiece(const MultidimArray<T>& mic, int N,
+			int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<T>& piece);
+
+	template <typename T>
+	void computeDivisions(const Image<T>& mic,
 			int& div_Number, int& div_NumberX, int& div_NumberY,
-			size_t& Xdim, size_t& Ydim, size_t& Zdim,size_t& Ndim);
+			size_t& Xdim, size_t& Ydim,	size_t& Zdim, size_t& Ndim);
 };
 //@}
 #endif

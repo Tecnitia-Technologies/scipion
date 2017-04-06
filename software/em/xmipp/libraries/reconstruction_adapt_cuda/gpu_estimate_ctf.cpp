@@ -32,8 +32,9 @@
 #include <data/xmipp_fftw.h>
 #include <data/xmipp_image.h>
 #include <data/xmipp_program.h>
-#include <data/normalize.h>
 #include <data/multidim_array.h>
+
+#include <TicTocHeaderOnly.h>
 
 // Read arguments ==========================================================
 void ProgGpuEstimateCTF::readParams()
@@ -66,20 +67,42 @@ void ProgGpuEstimateCTF::defineParams()
     addParamsLine("  [--overlap <o=0.5>]     : Overlap (0=no overlap, 1=full overlap)");
 }
 
-void ProgGpuEstimateCTF::toMagnitudeMatrix(std::complex<double>* f, double* mag) {
-	// CPU Magnitude
-	int fourierPos = 0;
-	for (int i = 0; i < pieceDim; i++) {
-		for (int j = i; j < pieceDim; j++) {
-			double d = std::abs(f[i]);
-			mag[i * pieceDim + j] = d * d * pieceDim * pieceDim;
-			fourierPos++;
+/* Construct piece smoother =============================================== */
+template <typename T>
+void constructPieceSmoother(const MultidimArray<T> &piece,
+		MultidimArray<T> &pieceSmoother) {
+	// Attenuate borders to avoid discontinuities
+	pieceSmoother.resizeNoCopy(piece);
+	pieceSmoother.initConstant(1);
+	pieceSmoother.setXmippOrigin();
+	T iHalfsize = 2.0 / YSIZE(pieceSmoother);
+	const T alpha = 0.025;
+	const T alpha1 = 1 - alpha;
+	const T ialpha = 1.0 / alpha;
+	for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother); i++) {
+		T iFraction = fabs(i * iHalfsize);
+		if (iFraction > alpha1) {
+			T maskValue = 0.5 * (1 + cos(PI * ((iFraction - 1) * ialpha + 1)));
+			for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother); j++)
+				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
 		}
 	}
+
+	for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother); j++) {
+		T jFraction = fabs(j * iHalfsize);
+		if (jFraction > alpha1) {
+			T maskValue = 0.5 * (1 + cos(PI * ((jFraction - 1) * ialpha + 1)));
+			for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother); i++)
+				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
+		}
+	}
+
+	STARTINGX(pieceSmoother) = STARTINGY(pieceSmoother) = 0;
 }
 
-Image<double> ProgGpuEstimateCTF::extractPiece(const Image<double>& mic, int N,
-		int div_NumberX, size_t Ydim, size_t Xdim) {
+template <typename T>
+void ProgGpuEstimateCTF::extractPiece(const MultidimArray<T>& mic, int N,
+		int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<T>& piece) {
 
 	int step = (int) (((1 - overlap) * pieceDim));
 	int blocki = (N - 1) / div_NumberX;
@@ -93,26 +116,15 @@ Image<double> ProgGpuEstimateCTF::extractPiece(const Image<double>& mic, int N,
 	if (piecej + pieceDim > Xdim)
 		piecej = Xdim - pieceDim;
 
-//	std::cout << "N     : " << N      << std::endl
-//			  << "step  : " << step   << std::endl
-//			  << "blocki: " << blocki << std::endl
-//			  << "blockj: " << blockj << std::endl
-//			  << "piecei: " << piecei << std::endl
-//			  << "piecej: " << piecej << std::endl;
-
-	Image<double> piece;
-	piece().initZeros(pieceDim, pieceDim);
-	window2D(mic(), piece(), piecei, piecej, piecei + YSIZE(piece()) - 1,
-			piecej + XSIZE(piece()) - 1);
-	return piece;
+	piece(pieceDim, pieceDim);
+	window2D(mic, piece, piecei, piecej, piecei + YSIZE(piece) - 1,
+			piecej + XSIZE(piece) - 1);
 }
 
-void ProgGpuEstimateCTF::computeDivisions(const Image<double>& mic,
+template <typename T>
+void ProgGpuEstimateCTF::computeDivisions(const Image<T>& mic,
 		int& div_Number, int& div_NumberX, int& div_NumberY,
 		size_t& Xdim, size_t& Ydim,	size_t& Zdim, size_t& Ndim) {
-	div_Number = 0;
-	div_NumberX = 1, div_NumberY = 1;
-
 	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
 
 	div_NumberX = CEIL((double)Xdim / (pieceDim *(1-overlap))) - 1;
@@ -123,7 +135,7 @@ void ProgGpuEstimateCTF::computeDivisions(const Image<double>& mic,
 		std::cout << "Xdim: " << Xdim << std::endl
 				  << "Ydim: " << Ydim << std::endl
 				  << "Zdim: " << Zdim << std::endl
-				  << "Ndim: "	<< Ndim << std::endl
+				  << "Ndim: " << Ndim << std::endl
 				  << std::endl
 				  << "div_NumberX: " << div_NumberX << std::endl
 				  << "div_NumberY: " << div_NumberY << std::endl
@@ -136,12 +148,12 @@ void ProgGpuEstimateCTF::computeDivisions(const Image<double>& mic,
 
 void ProgGpuEstimateCTF::run() {
 	// Input
-	Image<double> mic;
-	double *micPtr = MULTIDIM_ARRAY(mic());
+	Image<real_t> mic;
+	real_t *micPtr = mic().data;
 	mic.read(fnMic);
 	// Result
-	Image<double> psd;
-	double *psdPtr = MULTIDIM_ARRAY(psd());
+	Image<real_t> psd;
+	real_t *psdPtr = psd().data;
 	psd().initZeros(pieceDim, pieceDim);
 
 	// Compute the number of divisions --------------------------------------
@@ -149,19 +161,28 @@ void ProgGpuEstimateCTF::run() {
 	int div_Number;
 	int div_NumberX, div_NumberY;
  	computeDivisions(mic, div_Number, div_NumberX, div_NumberY, Xdim, Ydim, Zdim, Ndim);
+
+ 	// Attenuate borders to avoid discontinuities
+	MultidimArray<real_t> piece(pieceDim, pieceDim);
+    MultidimArray<real_t> pieceSmoother;
+    constructPieceSmoother(piece, pieceSmoother);
 	
  	for(int N = 1; N <= div_Number; N++) {
+ 		TicToc t;
+ 		t.tic();
 		// Extract piece
-		Image<double> piece = extractPiece(mic, N, div_NumberX, Ydim, Xdim);
+		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
 		// Normalize piece
-		piece().statisticsAdjust(0, 1);
-		normalize_ramp(piece());
 
-		//piece.write("gpu_1_piece");
+		piece.statisticsAdjust(0, 1);
+		STARTINGX(piece) = STARTINGY(piece) = 0;
+		piece *= pieceSmoother;
+		t.toc();
+		std::cout << t << std::endl;
 
 		// Test fourier
-		Image<double> fourierMagCPU;
-		Image<double> fourierMagGPU;
+		Image<real_t> fourierMagCPU;
+		Image<real_t> fourierMagGPU;
 
 		fourierMagCPU().initZeros(pieceDim, pieceDim);
 		fourierMagGPU().initZeros(pieceDim, pieceDim);
@@ -170,16 +191,16 @@ void ProgGpuEstimateCTF::run() {
 	//	transformer.setNormalizationSign(0);
 
 		// GPU FFT
-		std::complex<double> *fourierGPUptr = (std::complex<double>*) malloc(pieceDim * (pieceDim / 2 + 1) * sizeof(std::complex<double>));
-		gpuFFT(piece().data, fourierGPUptr, pieceDim);
+		complex_t *fourierGPUptr = (complex_t*) malloc(pieceDim * (pieceDim / 2 + 1) * sizeof(complex_t));
+		gpuFFT(piece.data, fourierGPUptr, pieceDim);
 
 		// CPU FFT
-		transformer.setReal(piece());
+		transformer.setReal(piece);
 		transformer.Transform(-1); // FFTW_FORWARD
-		std::complex<double> *fourierCPUptr = transformer.fFourier.data;
+		complex_t *fourierCPUptr = transformer.fFourier.data;
 
 		// Normalize FFT
-		double isize = 1.0 / (pieceDim * pieceDim);
+		real_t isize = 1.0 / (pieceDim * pieceDim);
 		for (int i = 0; i < pieceDim * (pieceDim / 2 + 1); i++) {
 			fourierGPUptr[i].real(fourierGPUptr[i].real() * isize);
 			fourierGPUptr[i].imag(fourierGPUptr[i].imag() * isize);
@@ -192,13 +213,7 @@ void ProgGpuEstimateCTF::run() {
 			}
 		}
 
-		toMagnitudeMatrix(fourierCPUptr, fourierMagCPU().data);
-		toMagnitudeMatrix(fourierGPUptr, fourierMagGPU().data);
-
 		fourierMagCPU.write("cpu_mag");
 		fourierMagGPU.write("gpu_mag");
  	}
-
-
-	// psd.write(fnOut);
 }

@@ -77,67 +77,21 @@ const char* cudaGetCuFFTResultString(cufftResult_t r) {
 		return "Unknown result code";
 	}
 }
-}
-
-using namespace cuda_gpu_estimate_ctf_err;
 
 #define CU_CHK(x) __e = x;\
 if (__e != 0) { \
-std::cerr << "ERROR, line: " << __LINE__ << " File: " << __FILE__ << " Error: " <<  cudaGetErrorString(__e) << std::endl;\
+std::cerr << "ERROR, " << __FILE__ << ":" << __LINE__ << ", " <<  cudaGetErrorString(__e) << std::endl;\
 exit(EXIT_FAILURE); }
 
 #define FFT_CHK(x) __fftr = x;\
 if (__fftr != 0) { \
-std::cerr << "FFT ERROR, line: " << __LINE__ << " File: " << __FILE__ << " Error: " <<  cudaGetCuFFTResultString(__fftr) << std::endl;\
+	std::cerr << "ERROR, " << __FILE__ << ":" << __LINE__ << ", " <<  cudaGetCuFFTResultString(__fftr) << std::endl;\
 exit(EXIT_FAILURE); }
-
-void cudaRunGpuEstimateCTF(double* mic, double* psd, int pieceDim,
-		int div_Number, int div_NumberX, int div_NumberY) {
-
-	int numElemsPerLine = pieceDim * pieceDim * div_NumberX;
-
-	// Device pointers
-	double *d_micLine, *d_resLine;
-	cufftDoubleComplex* d_fourier; // Fourier intermediate result
-
-	// Auxiliar host mem
-	double *partialPsd;
-	CU_CHK(cudaMallocHost((void**) &partialPsd, numElemsPerLine * sizeof(double)));
-
-	// Reservar espacio para una linea
-	CU_CHK(cudaMalloc((void**) &d_micLine, numElemsPerLine * sizeof(double)));
-
-	// Reservar espacio auxiliar para FFT
-	CU_CHK(cudaMalloc((void**) &d_fourier, numElemsPerLine * sizeof(cufftDoubleComplex)));
-
-	// Reservar resultado
-	CU_CHK(cudaMalloc((void**) &d_resLine, numElemsPerLine * sizeof(double)));
-
-	for (int line = 0; line < div_NumberY; ++line) {
-		// Subir a gpu la linea Imic_ptr[line * numElemsPerLine]
-		CU_CHK(cudaMemcpy(d_micLine, mic + line * numElemsPerLine, numElemsPerLine, cudaMemcpyHostToDevice));
-
-		// Procesar linea
-
-		// traer resultado
-		CU_CHK(cudaMemcpy(partialPsd, d_resLine, numElemsPerLine, cudaMemcpyDeviceToHost));
-
-		// reducir resultado
-	}
-
-	// media
-	// psd *= (double) 1.0 / div_Number;
-	for (int i = 0; i < pieceDim * pieceDim; i++) {
-		psd[i] *= (double) 1.0 / div_Number;
-	}
-
-	// Free device and auxiliar memory
-	CU_CHK(cudaFree(d_micLine));
-	CU_CHK(cudaFree(d_fourier));
-	CU_CHK(cudaFree(d_resLine));
-
-	CU_CHK(cudaFreeHost(partialPsd));
 }
+
+using namespace cuda_gpu_estimate_ctf_err;
+
+
 
 void gpuFFT(double* input, std::complex<double>* f, int pieceDim) {
 	cufftDoubleComplex *fourier = (cufftDoubleComplex*) f;
