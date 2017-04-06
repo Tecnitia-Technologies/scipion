@@ -90,14 +90,21 @@ public:
     void run();
 
 private:
-	void extractPiece(const Image<double>& mic, int N, int div_NumberX,
-			size_t Ydim, size_t Xdim, Image<double>& piece);
-	void computeDivisions(const Image<double>& mic,
+
+    template <typename T>
+	void extractPiece(const MultidimArray<T>& mic, int N, int div_NumberX,
+			size_t Ydim, size_t Xdim, MultidimArray<T>& piece);
+
+    template <typename T>
+    void computeDivisions(const Image<T>& mic,
 			int& div_Number, int& div_NumberX, int& div_NumberY,
 			size_t& Xdim, size_t& Ydim, size_t& Zdim,size_t& Ndim);
 
-	void orgPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece);
-	void testPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece);
+    template <typename T>
+	void orgPre (const MultidimArray<T>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<T>& pieceSmoother, MultidimArray<T>& piece);
+
+    template <typename T>
+    void testPre(const MultidimArray<T>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<T>& pieceSmoother, MultidimArray<T>& piece);
 };
 
 /** Fast estimate enhanced PSD.

@@ -133,24 +133,26 @@ void ProgCTFEstimateFromMicrograph::defineParams()
 }
 
 /* Construct piece smoother =============================================== */
-void constructPieceSmoother(const MultidimArray<double> &piece,
-                            MultidimArray<double> &pieceSmoother)
+
+template <typename T>
+void constructPieceSmoother(const MultidimArray<T> &piece,
+                            MultidimArray<T> &pieceSmoother)
 {
     // Attenuate borders to avoid discontinuities
     pieceSmoother.resizeNoCopy(piece);
     pieceSmoother.initConstant(1);
     pieceSmoother.setXmippOrigin();
-    double iHalfsize = 2.0 / YSIZE(pieceSmoother);
-    const double alpha = 0.025;
-    const double alpha1 = 1 - alpha;
-    const double ialpha = 1.0 / alpha;
+    T iHalfsize = 2.0 / YSIZE(pieceSmoother);
+    const T alpha = 0.025;
+    const T alpha1 = 1 - alpha;
+    const T ialpha = 1.0 / alpha;
     for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother);
          i++)
     {
-        double iFraction = fabs(i * iHalfsize);
+        T iFraction = fabs(i * iHalfsize);
         if (iFraction > alpha1)
         {
-            double maskValue = 0.5
+            T maskValue = 0.5
                                * (1 + cos(PI * ((iFraction - 1) * ialpha + 1)));
             for (int j = STARTINGX(pieceSmoother);
                  j <= FINISHINGX(pieceSmoother); j++)
@@ -161,20 +163,24 @@ void constructPieceSmoother(const MultidimArray<double> &piece,
     for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother);
          j++)
     {
-        double jFraction = fabs(j * iHalfsize);
+        T jFraction = fabs(j * iHalfsize);
         if (jFraction > alpha1)
         {
-            double maskValue = 0.5
+            T maskValue = 0.5
                                * (1 + cos(PI * ((jFraction - 1) * ialpha + 1)));
             for (int i = STARTINGY(pieceSmoother);
                  i <= FINISHINGY(pieceSmoother); i++)
                 A2D_ELEM(pieceSmoother,i,j)*=maskValue;
         }
     }
+
+    STARTINGX(pieceSmoother) = STARTINGY(pieceSmoother) = 0;
 }
 
-void ProgCTFEstimateFromMicrograph::extractPiece(const Image<double>& mic, int N,
-		int div_NumberX, size_t Ydim, size_t Xdim, Image<double>& piece) {
+template <typename T>
+void ProgCTFEstimateFromMicrograph::extractPiece(const MultidimArray<T>& mic,
+		int N, int div_NumberX, size_t Ydim, size_t Xdim,
+		MultidimArray<T>& piece) {
 
 	int step = (int) (((1 - overlap) * pieceDim));
 	int blocki = (N - 1) / div_NumberX;
@@ -188,11 +194,12 @@ void ProgCTFEstimateFromMicrograph::extractPiece(const Image<double>& mic, int N
 	if (piecej + pieceDim > Xdim)
 		piecej = Xdim - pieceDim;
 
-	piece()(pieceDim, pieceDim);
-	window2D(mic(), piece(), piecei, piecej, piecei + YSIZE(piece()) - 1, piecej + XSIZE(piece()) - 1);
+	piece(pieceDim, pieceDim);
+	window2D(mic, piece, piecei, piecej, piecei + YSIZE(piece) - 1, piecej + XSIZE(piece) - 1);
 }
 
-void ProgCTFEstimateFromMicrograph::computeDivisions(const Image<double>& mic,
+template <typename T>
+void ProgCTFEstimateFromMicrograph::computeDivisions(const Image<T>& mic,
 		int& div_Number, int& div_NumberX, int& div_NumberY,
 		size_t& Xdim, size_t& Ydim,	size_t& Zdim, size_t& Ndim) {
 	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
@@ -219,58 +226,77 @@ void ProgCTFEstimateFromMicrograph::computeDivisions(const Image<double>& mic,
 template <typename T>
 void expandFourier(const MultidimArray<T>& fFourier, MultidimArray<T>& V) {
 	T* ptrDest;
-	FOR_ALL_DIRECT_ELEMENTS_IN_ARRAY2D(V)
-	{
-		ptrDest = &DIRECT_A2D_ELEM(V, i, j);
-		if (j < XSIZE(fFourier)) {
-			*ptrDest = DIRECT_A2D_ELEM(fFourier, i, j);
-		} else {
-			*ptrDest = DIRECT_A2D_ELEM(fFourier, (YSIZE(V) - i) % YSIZE(V), XSIZE(V) - j);
+	size_t lim = XSIZE(fFourier);
+	size_t ysizeV = YSIZE(V);
+
+	for (size_t i = 0; i < (V.ydim); ++i) {
+		size_t ii = (ysizeV - i) % ysizeV;
+		for (size_t j = 0; j < (V.xdim); ++j) {
+			ptrDest = V.data + (i * V.xdim + j);
+			if (j < lim)
+				*ptrDest = DIRECT_A2D_ELEM(fFourier, i, j);
+			else
+				*ptrDest = DIRECT_A2D_ELEM(fFourier, ii, XSIZE(V) - j);
+
 		}
 	}
 }
 
-
 /* TEST ==================================================================== */
 
-void ProgCTFEstimateFromMicrograph::orgPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece) {
+template <typename T>
+void ProgCTFEstimateFromMicrograph::orgPre(const MultidimArray<T>& M_in,
+		int N, int div_NumberX, size_t Ydim, size_t Xdim,
+		MultidimArray<T>& pieceSmoother, MultidimArray<T>& piece) {
 	extractPiece(M_in, N, div_NumberX, Ydim, Xdim, piece);
-	piece().statisticsAdjust(0, 1);
-	normalize_ramp(piece());
-	piece() *= pieceSmoother;
+	piece.statisticsAdjust(0, 1);
+	//normalize_ramp(piece());
+	STARTINGX(piece) = STARTINGY(piece) = 0;
+	piece *= pieceSmoother;
 }
 
-void orgFourier(Image<double>& piece, FourierTransformer& transformer, MultidimArray<std::complex<double> >& Periodogram) {
-	transformer.completeFourierTransform(piece(), Periodogram);
+template <typename T>
+void orgFourier(MultidimArray<T>& piece, FourierTransformer& transformer, MultidimArray<std::complex<T> >& Periodogram) {
+	transformer.completeFourierTransform(piece, Periodogram);
 }
 
-void orgPost(MultidimArray<std::complex<double> >& Periodogram, double pieceDim2, Image<double>& orgPsd) {
-	FFT_magnitude(Periodogram, orgPsd());
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(orgPsd())
-		DIRECT_MULTIDIM_ELEM(orgPsd(),n) *= DIRECT_MULTIDIM_ELEM(orgPsd(), n) * pieceDim2;
+template <typename T>
+void orgPost(MultidimArray<std::complex<T> >& Periodogram, double pieceDim2, MultidimArray<T>& orgPsd) {
+	FFT_magnitude(Periodogram, orgPsd);
+
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(orgPsd)
+		DIRECT_MULTIDIM_ELEM(orgPsd,n) *= DIRECT_MULTIDIM_ELEM(orgPsd, n) * pieceDim2;
 }
 
-void ProgCTFEstimateFromMicrograph::testPre(const Image<double>& M_in, int N, int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<double>& pieceSmoother, Image<double>& piece) {
+template <typename T>
+void ProgCTFEstimateFromMicrograph::testPre(const MultidimArray<T>& M_in,
+		int N, int div_NumberX, size_t Ydim, size_t Xdim,
+		MultidimArray<T>& pieceSmoother, MultidimArray<T>& piece) {
 	extractPiece(M_in, N, div_NumberX, Ydim, Xdim, piece);
-	piece().statisticsAdjust(0, 1);
-	normalize_ramp(piece());
-	piece() *= pieceSmoother;
+	piece.statisticsAdjust(0, 1);
+	//normalize_ramp(piece());
+	STARTINGX(piece) = STARTINGY(piece) = 0;
+	piece *= pieceSmoother;
 }
 
-void testFourier(Image<double>& piece, FourierTransformer& transformer) {
-	transformer.setReal(piece());
+template <typename T>
+void testFourier(MultidimArray<T>& piece, FourierTransformer& transformer) {
+	transformer.setReal(piece);
 	transformer.Transform(FFTW_FORWARD); // FFTW_FORWARD
 }
 
-void testPost(std::complex<double>* fourierCPUptr, int pieceDim, Image<double>& fastProcIntermediateResult, Image<double>& testPsd) {
+template <typename T>
+void testPost(std::complex<T>* fourierCPUptr, int pieceDim,
+		MultidimArray<T>& fastProcIntermediateResult,
+		MultidimArray<T>& testPsd) {
 	int size = pieceDim * (pieceDim / 2 + 1);
 	for (int i = 0; i < size; i++) {
-		double real = fourierCPUptr[i].real();
-		double imag = fourierCPUptr[i].imag();
-		fastProcIntermediateResult().data[i] = (real * real + imag * imag);
+		T real = fourierCPUptr[i].real();
+		T imag = fourierCPUptr[i].imag();
+		fastProcIntermediateResult.data[i] = (real * real + imag * imag);
 	}
 	// Expand
-	expandFourier(fastProcIntermediateResult(), testPsd());
+	expandFourier(fastProcIntermediateResult, testPsd);
 }
 
 /* Main ==================================================================== */
@@ -301,15 +327,15 @@ void ProgCTFEstimateFromMicrograph::run()
     Image<double> orgPsdAvg, orgPsd;
     Image<double> testPsdAvg, testPsd, fastProcIntermediateResult;
     MultidimArray<std::complex<double> > Periodogram;
-    Image<double> piece(pieceDim, pieceDim);
+    MultidimArray<double> piece(pieceDim, pieceDim);
 
-    orgPsd().resizeNoCopy(piece());
-    testPsd().resizeNoCopy(piece());
+    orgPsd() .resizeNoCopy(piece);
+    testPsd().resizeNoCopy(piece);
     fastProcIntermediateResult().resize(pieceDim, pieceDim / 2 + 1);
 
     // Attenuate borders to avoid discontinuities
     MultidimArray<double> pieceSmoother;
-    constructPieceSmoother(piece(), pieceSmoother);
+    constructPieceSmoother(piece, pieceSmoother);
 
     FourierTransformer transformer;
 
@@ -318,15 +344,15 @@ void ProgCTFEstimateFromMicrograph::run()
     // ProcessOrgPsd
 	for (int N = 1; N <= div_Number; N++)
 	{
-		orgPre(M_in, N, div_NumberX, Ydim, Xdim, pieceSmoother, piece);
+		orgPre(M_in.data, N, div_NumberX, Ydim, Xdim, pieceSmoother, piece);
 		orgFourier(piece, transformer, Periodogram);
-		orgPost(Periodogram, pieceDim2, orgPsd);
+		orgPost(Periodogram, pieceDim2, orgPsd.data);
 
 		// Compute average and standard deviation
-		if (XSIZE(orgPsdAvg()) != XSIZE(orgPsd()))
-			orgPsdAvg() = orgPsd();
+		if (XSIZE(orgPsdAvg.data) != XSIZE(orgPsd.data))
+			orgPsdAvg.data = orgPsd.data;
 		else
-			orgPsdAvg() += orgPsd();
+			orgPsdAvg.data += orgPsd.data;
 //		if (verbose)
 //			progress_bar(N+1);
 	}
@@ -339,20 +365,20 @@ void ProgCTFEstimateFromMicrograph::run()
     // ProcessTestPsd
 	for (int N = 1; N <= div_Number; N++)
 	{
-		testPre(M_in, N, div_NumberX, Ydim, Xdim, pieceSmoother, piece);
+		testPre(M_in.data, N, div_NumberX, Ydim, Xdim, pieceSmoother, piece);
 
 		// Process FFT
 		testFourier(piece, transformer);
 		std::complex<double> *fourierCPUptr = transformer.fFourier.data;
 
 		// Process fast
-		testPost(fourierCPUptr, pieceDim, fastProcIntermediateResult, testPsd);
+		testPost(fourierCPUptr, pieceDim, fastProcIntermediateResult.data, testPsd.data);
 
 		// Compute average and standard deviation
-		if (XSIZE(testPsdAvg()) != XSIZE(testPsd()))
-			testPsdAvg() = testPsd();
+		if (XSIZE(testPsdAvg.data) != XSIZE(testPsd.data))
+			testPsdAvg.data = testPsd.data;
 		else
-			testPsdAvg() += testPsd();
+			testPsdAvg.data += testPsd.data;
 //		if (verbose)
 //			progress_bar(N+1);
 	}
