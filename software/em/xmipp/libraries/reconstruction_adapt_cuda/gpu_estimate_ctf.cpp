@@ -149,12 +149,13 @@ void ProgGpuEstimateCTF::computeDivisions(const Image<T>& mic,
 void ProgGpuEstimateCTF::run() {
 	// Input
 	Image<real_t> mic;
-	real_t *micPtr = mic().data;
 	mic.read(fnMic);
+	real_t *micPtr = mic().data;
 	// Result
 	Image<real_t> psd;
-	real_t *psdPtr = psd().data;
 	psd().initZeros(pieceDim, pieceDim);
+	real_t *psdPtr = psd().data;
+
 
 	// Compute the number of divisions --------------------------------------
 	size_t Xdim, Ydim, Zdim, Ndim;
@@ -166,7 +167,41 @@ void ProgGpuEstimateCTF::run() {
 	MultidimArray<real_t> piece(pieceDim, pieceDim);
     MultidimArray<real_t> pieceSmoother;
     constructPieceSmoother(piece, pieceSmoother);
-	
+
+
+	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
+
+	size_t inNumPixels   = div_Number * pieceDim * pieceDim;
+	size_t inSize        = inNumPixels * sizeof(double);
+
+	size_t outNumPixels  = pieceDim * pieceDim;
+	size_t outSize       = outNumPixels * sizeof(double);
+
+	double* test = (double*) malloc(inSize);
+
+	testNormalization(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, test);
+
+ 	for(int N = 1; N <= div_Number; N++) {
+		// Extract piece
+		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
+		// Normalize piece
+
+		//piece.statisticsAdjust(0, 1);
+		//STARTINGX(piece) = STARTINGY(piece) = 0;
+		//piece *= pieceSmoother;
+
+		size_t it = (N-1) * pieceDim * pieceDim;
+		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+			if (std::abs(piece.data[i] - test[it]) > 10e-12) {
+				std::cout << "piece: " << N << " i " << i << ", CPU: " << piece.data[i] << " GPU: " << test[it] << std::endl;
+			}
+			it++;
+		}
+ 	}
+
+	return;
+
+
  	for(int N = 1; N <= div_Number; N++) {
  		TicToc t;
  		t.tic();

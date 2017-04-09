@@ -31,8 +31,8 @@
 
 #include <complex>
 
-template <typename real>
-void cudaRunGpuEstimateCTF(real* mic, real* psd, int pieceDim, int div_Number, int div_NumberX, int div_NumberY);
+void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd);
+void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd);
 
 void gpuFFT(double* mic, std::complex<double>* f, int pieceDim);
 void gpuFFT(float* mic, std::complex<float>* f, int pieceDim);
