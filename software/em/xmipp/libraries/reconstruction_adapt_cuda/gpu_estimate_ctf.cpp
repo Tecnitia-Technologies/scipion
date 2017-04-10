@@ -186,9 +186,9 @@ void ProgGpuEstimateCTF::run() {
 		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
 		// Normalize piece
 
-		//piece.statisticsAdjust(0, 1);
-		//STARTINGX(piece) = STARTINGY(piece) = 0;
-		//piece *= pieceSmoother;
+		piece.statisticsAdjust(0, 1);
+		STARTINGX(piece) = STARTINGY(piece) = 0;
+		piece *= pieceSmoother;
 
 		size_t it = (N-1) * pieceDim * pieceDim;
 		for (size_t i = 0; i < pieceDim * pieceDim; i++) {

@@ -287,7 +287,8 @@ void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, si
 
 	// Host page-locked memory
 	double* in;
-	CU_CHK(cudaMallocHost((void**) &in,  inSize));
+//	CU_CHK(cudaMallocHost((void**) &in,  inSize));
+	in = (double*) malloc(inSize);
 
 	// Iterate over all pieces
 	size_t step = (size_t) (((1 - overlap) * pieceDim));
@@ -311,7 +312,7 @@ void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, si
 		// ComputeAvgStdev
 		double avg = 0.0, stddev = 0.0;
 		//std::cerr << "Start computePieceAvgStd blocki " << blocki << " blockj " << blockj << std::endl;
-		//computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
+		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
 		//std::cerr << "End computePieceAvgStd blocki " << blocki << " blockj " << blockj << std::endl;
 		// Normalize and smooth
 		double a, b;
@@ -328,8 +329,7 @@ void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, si
 			for (size_t x = x0; x < xEnd; x++) {
 				//std::cerr << "x0 " << x0 << " y0 " << y0 << " xEnd " << xEnd << " yEnd " << yEnd << " x " << x << " y " << y << " p " << y * yDim + x << std::endl;
 				//std::cerr << "it " << it << " micIt " << y * step + x << " smoothIt " << smoothIt << std::endl;
-				//in[it] = (mic[y * step + x] * a + b);
-				in[it] = (mic[y * step + x]);
+				in[it] = (mic[y * xDim + x] * a + b) * pieceSmoother[smoothIt];
 				it++;
 				smoothIt++;
 			}
@@ -340,7 +340,8 @@ void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, si
 	memcpy(psd, in, inSize);
 
 	// Free memory
-	CU_CHK(cudaFreeHost(in));
+//	CU_CHK(cudaFreeHost(in));
+	free(in);
 }
 
 
