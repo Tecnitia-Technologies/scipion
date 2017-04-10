@@ -32,9 +32,4 @@
 #include <complex>
 
 void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd);
-void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd);
-
-void gpuFFT(double* mic, std::complex<double>* f, int pieceDim);
-void gpuFFT(float* mic, std::complex<float>* f, int pieceDim);
-
 #endif

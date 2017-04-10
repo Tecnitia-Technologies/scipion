@@ -30,6 +30,7 @@
 #include <cuda.h>
 #include <cufft.h>
 
+#include <cufftXt.h>
 #include <cmath>
 
 #include <data/xmipp_macros.h>
@@ -176,6 +177,14 @@ void computePieceAvgStd(double* in, size_t pieceDim, size_t y0, size_t yEnd,
 //    	out[i] = (in[i] * a + b) * pieceSmoother[i];
 //}
 
+//__device__ void CB_ConvolveAndStoreTransposedC(void *dataOut, size_t offset, cufftDoubleComplex element, void *callerInfo, void *sharedPointer) {
+//    double real = cuCreal(element);
+//    double imag = cuCimag(element);
+//    ((double*)dataOut)[offset] = real * real + imag * imag;
+//}
+//
+//__device__ cufftCallbackStoreZ d_storeCallbackPtr = CB_ConvolveAndStoreTransposedC;
+
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
 
@@ -190,8 +199,8 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	size_t inNumPixels   = divNumber * pieceDim * pieceDim;
 	size_t inSize        = inNumPixels * sizeof(double);
 
-	size_t outNumPixels  = pieceDim * pieceDim;
-	size_t outSize       = outNumPixels * sizeof(double);
+	size_t outNumPixels  = divNumber * pieceDim * (pieceDim / 2 + 1);
+	size_t outSize       = outNumPixels * sizeof(cufftDoubleComplex);
 
 	if (divNumberX <= 0 || divNumberY <= 0) {
 		std::cerr << "Error, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
@@ -202,97 +211,32 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 
 	// Host page-locked memory
 	double* in;
-	double* out;
+	cuDoubleComplex* out;
 	CU_CHK(cudaMallocHost((void**) &in,  inSize));
 	CU_CHK(cudaMallocHost((void**) &out, outSize));
 
-	// Device pointers
+	// Device memory
 	double* d_in;
-	double* d_out;
-	CU_CHK(cudaMalloc((void**) &d_in,  inSize));
-	CU_CHK(cudaMalloc((void**) &d_out, outSize));
+	cuDoubleComplex*d_out;
+	CU_CHK(cudaMalloc((void**)&d_in, inSize));
+	CU_CHK(cudaMalloc((void**)&d_out, outSize));
+	//in = (double*) malloc(inSize);
 
-	// Create CuFFT plan
+//	cufftCallbackStoreZ h_storeCallbackPtr;
+//	CU_CHK(cudaMemcpyFromSymbol(&h_storeCallbackPtr, d_storeCallbackPtr, sizeof(h_storeCallbackPtr)));
 
-	// Iterate over all pieces
-	size_t step = (size_t) (((1 - overlap) * pieceDim));
-	for (size_t n = 0; n < divNumber; ++n) {
-		size_t blocki = n / divNumberX;
-		size_t blockj = n % divNumberX;
-		size_t y0 = blocki * step + skipBorders * pieceDim;
-		size_t x0 = blockj * step + skipBorders * pieceDim;
-
-		// Test if the full piece is inside the micrograph
-		if (y0 + pieceDim > yDim)
-			y0 = yDim - pieceDim;
-
-		if (x0 + pieceDim > xDim)
-			x0 = xDim - pieceDim;
-
-		size_t yEnd = y0 + pieceDim;
-		size_t xEnd = x0 + pieceDim;
-		
-		// ComputeAvgStdev
-		double avg = 0.0, stddev = 0.0;
-		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, step, avg, stddev);
-		// Normalize and smooth
-		double a, b;
-		if (stddev != 0.0)
-			a = stddevF / stddev;
-		else
-			a = 0.0;
-
-		b = avgF - a * avg;
-
-		size_t it = n * pieceDim * pieceDim; // Hotst page-locked memory iterator
-		for (size_t y = y0; y < yEnd; y++) {
-			for (size_t x = x0; x < xEnd; x++) {
-				in[it] = (mic[y * step + x] * a + b) * pieceSmoother[it];
-				it++;
-			}
-		}
-	}
-
-	// Copy from host page-locked to result psd
-	//memcpy(psd, out, outSize);
-
-	// Free memory
-	CU_CHK(cudaFreeHost(in));
-	CU_CHK(cudaFreeHost(out));
-
-	CU_CHK(cudaFree(d_in));
-	CU_CHK(cudaFree(d_out));
-}
-
-void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
-	TicToc t;
-
-	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
-	size_t divNumberX    = std::ceil((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
-	size_t divNumberY    = std::ceil((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
-	size_t divNumber     = divNumberX * divNumberY;
-
-	size_t inNumPixels   = divNumber * pieceDim * pieceDim;
-	size_t inSize        = inNumPixels * sizeof(double);
-
-	size_t outNumPixels  = pieceDim * pieceDim;
-	size_t outSize       = outNumPixels * sizeof(double);
-
-	if (divNumberX <= 0 || divNumberY <= 0) {
-		std::cerr << "Error, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
-				  << "with " << overlap << " overlap and " << skipBorders << " skip borders," << std::endl
-				  << "resulted in divNumberX=" << divNumberX << ", divNumberY=" << divNumberY << std::endl;
-		exit(EXIT_FAILURE);
-	}
-
-	// Host page-locked memory
-	double* in;
-//	CU_CHK(cudaMallocHost((void**) &in,  inSize));
-	in = (double*) malloc(inSize);
+	// CU FFT PLAN
+	cudaStream_t* streams = new cudaStream_t[divNumber];
+	cufftHandle*    plans = new cufftHandle[divNumber];
 
 	// Iterate over all pieces
 	size_t step = (size_t) (((1 - overlap) * pieceDim));
 	for (size_t n = 0; n < divNumber; ++n) {
+		CU_CHK (cudaStreamCreate(streams + n));
+		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
+		FFT_CHK(cufftSetStream(plans[n], streams[n]));
+		//FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
+
 		size_t blocki = n / divNumberX;
 		size_t blockj = n % divNumberX;
 		size_t y0 = blocki * step + skipBorders * pieceDim;
@@ -334,49 +278,50 @@ void testNormalization(double* mic, size_t xDim, size_t yDim, double overlap, si
 				smoothIt++;
 			}
 		}
+
+		double* inPtr  = d_in  + n * pieceDim * pieceDim;
+		cuDoubleComplex* outPtr = d_out + n * pieceDim * (pieceDim / 2 + 1);
+
+		// Execution
+		CU_CHK(cudaMemcpyAsync(d_in, in, pieceDim * pieceDim * sizeof(double), cudaMemcpyHostToDevice, streams[n]));
+		FFT_CHK(cufftExecD2Z(plans[n], inPtr, outPtr));
+		CU_CHK(cudaMemcpyAsync(out, d_out, pieceDim * (pieceDim / 2 + 1) * sizeof(cuDoubleComplex), cudaMemcpyDeviceToHost, streams[n]));
+	}
+	// Expand + redux
+	for (size_t n = 0; n < divNumber; ++n) {
+		CU_CHK(cudaStreamSynchronize(streams[n]));
+		CU_CHK(cudaStreamDestroy(streams[n]));
+
+		std::cerr << n << " " << divNumber << std::endl;
+		double* ptrDest;
+		cuDoubleComplex* outPtr = out + n * pieceDim * (pieceDim / 2 + 1);
+
+		for (size_t i = 0; i < pieceDim; ++i) {
+			size_t ii = (pieceDim - i) % pieceDim;
+			for (size_t j = 0; j < pieceDim; ++j) {
+				if ( n>= 48)
+				std::cerr << "i " << i << " j " << j << " ii " << ii << std::endl;
+
+				ptrDest = psd + (i * pieceDim + j);
+				cuDoubleComplex val;
+				if (j < pieceDim) {
+					val = outPtr[j * pieceDim + i];
+				} else {
+					val = outPtr[(pieceDim - j) * pieceDim + ii];
+				}
+				double real = cuCreal(val);
+				double imag = cuCimag(val);
+				if ( n>= 48)
+				std::cerr << "a" << std::endl;
+				*ptrDest += real * real + imag * imag;
+			}
+		}
 	}
 
-	// Copy from host page-locked to result psd
-	memcpy(psd, in, inSize);
-
 	// Free memory
-//	CU_CHK(cudaFreeHost(in));
-	free(in);
-}
-
-
-void gpuFFT(double* input, std::complex<double>* f, int pieceDim) {
-	cufftDoubleComplex *fourier = (cufftDoubleComplex*) f;
-
-	size_t inputSize     = pieceDim * pieceDim * sizeof(double);
-	size_t transformSize = pieceDim * (pieceDim / 2 + 1) * sizeof(cufftDoubleComplex);
-	// Half of elements because of Hermitian Symmetry of Real value FT
-
-	// Device pointers
-	double*             d_input;
-	cufftDoubleComplex* d_fourier;
-
-	// Device memory allocation
-	CU_CHK(cudaMalloc((void**) &d_input,   inputSize));
-	CU_CHK(cudaMalloc((void**) &d_fourier, transformSize));
-
-	// Offload to device
-	CU_CHK(cudaMemcpy(d_input, input, inputSize, cudaMemcpyHostToDevice));
-
-	// Fourier setup
-	cufftHandle plan;
-	FFT_CHK(cufftPlan2d(&plan, pieceDim, pieceDim, CUFFT_D2Z));
-
-	// Fourier execution
-	FFT_CHK(cufftExecD2Z(plan, d_input, d_fourier));
-	CU_CHK(cudaDeviceSynchronize());
-
-	// Read result from device
-	CU_CHK(cudaMemcpy(fourier, d_fourier, transformSize, cudaMemcpyDeviceToHost));
-
-	// Free device memory
-	CU_CHK(cudaFree(d_input));
-	CU_CHK(cudaFree(d_fourier));
-
-	FFT_CHK(cufftDestroy(plan));
+	CU_CHK(cudaFreeHost(in));
+	CU_CHK(cudaFreeHost(out));
+	CU_CHK(cudaFree(d_in));
+	CU_CHK(cudaFree(d_out));
+	//free(in);
 }

@@ -179,76 +179,76 @@ void ProgGpuEstimateCTF::run() {
 
 	double* test = (double*) malloc(inSize);
 
-	testNormalization(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, test);
+	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, test);
 
- 	for(int N = 1; N <= div_Number; N++) {
-		// Extract piece
-		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
-		// Normalize piece
-
-		piece.statisticsAdjust(0, 1);
-		STARTINGX(piece) = STARTINGY(piece) = 0;
-		piece *= pieceSmoother;
-
-		size_t it = (N-1) * pieceDim * pieceDim;
-		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-			if (std::abs(piece.data[i] - test[it]) > 10e-12) {
-				std::cout << "piece: " << N << " i " << i << ", CPU: " << piece.data[i] << " GPU: " << test[it] << std::endl;
-			}
-			it++;
-		}
- 	}
+// 	for(int N = 1; N <= div_Number; N++) {
+//		// Extract piece
+//		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
+//		// Normalize piece
+//
+//		piece.statisticsAdjust(0, 1);
+//		STARTINGX(piece) = STARTINGY(piece) = 0;
+//		piece *= pieceSmoother;
+//
+//		size_t it = (N-1) * pieceDim * pieceDim;
+//		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+//			if (std::abs(piece.data[i] - test[it]) > 10e-12) {
+//				std::cout << "piece: " << N << " i " << i << ", CPU: " << piece.data[i] << " GPU: " << test[it] << std::endl;
+//			}
+//			it++;
+//		}
+// 	}
 
 	return;
 
 
- 	for(int N = 1; N <= div_Number; N++) {
- 		TicToc t;
- 		t.tic();
-		// Extract piece
-		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
-		// Normalize piece
-
-		piece.statisticsAdjust(0, 1);
-		STARTINGX(piece) = STARTINGY(piece) = 0;
-		piece *= pieceSmoother;
-		t.toc();
-		std::cout << t << std::endl;
-
-		// Test fourier
-		Image<real_t> fourierMagCPU;
-		Image<real_t> fourierMagGPU;
-
-		fourierMagCPU().initZeros(pieceDim, pieceDim);
-		fourierMagGPU().initZeros(pieceDim, pieceDim);
-
-		FourierTransformer transformer;
-	//	transformer.setNormalizationSign(0);
-
-		// GPU FFT
-		complex_t *fourierGPUptr = (complex_t*) malloc(pieceDim * (pieceDim / 2 + 1) * sizeof(complex_t));
-		gpuFFT(piece.data, fourierGPUptr, pieceDim);
-
-		// CPU FFT
-		transformer.setReal(piece);
-		transformer.Transform(-1); // FFTW_FORWARD
-		complex_t *fourierCPUptr = transformer.fFourier.data;
-
-		// Normalize FFT
-		real_t isize = 1.0 / (pieceDim * pieceDim);
-		for (int i = 0; i < pieceDim * (pieceDim / 2 + 1); i++) {
-			fourierGPUptr[i].real(fourierGPUptr[i].real() * isize);
-			fourierGPUptr[i].imag(fourierGPUptr[i].imag() * isize);
-		}
-
-		// Check FFT
-		for (int i = 0; i < pieceDim * (pieceDim / 2 + 1); i++) {
-			if (std::abs(fourierGPUptr[i] - fourierCPUptr[i]) > 10e-12) {
-				std::cout << i << ", CPU: " << fourierCPUptr[i] << " GPU: " << fourierGPUptr[i] << std::endl;
-			}
-		}
-
-		fourierMagCPU.write("cpu_mag");
-		fourierMagGPU.write("gpu_mag");
- 	}
+// 	for(int N = 1; N <= div_Number; N++) {
+// 		TicToc t;
+// 		t.tic();
+//		// Extract piece
+//		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
+//		// Normalize piece
+//
+//		piece.statisticsAdjust(0, 1);
+//		STARTINGX(piece) = STARTINGY(piece) = 0;
+//		piece *= pieceSmoother;
+//		t.toc();
+//		std::cout << t << std::endl;
+//
+//		// Test fourier
+//		Image<real_t> fourierMagCPU;
+//		Image<real_t> fourierMagGPU;
+//
+//		fourierMagCPU().initZeros(pieceDim, pieceDim);
+//		fourierMagGPU().initZeros(pieceDim, pieceDim);
+//
+//		FourierTransformer transformer;
+//	//	transformer.setNormalizationSign(0);
+//
+//		// GPU FFT
+//		complex_t *fourierGPUptr = (complex_t*) malloc(pieceDim * (pieceDim / 2 + 1) * sizeof(complex_t));
+//		gpuFFT(piece.data, fourierGPUptr, pieceDim);
+//
+//		// CPU FFT
+//		transformer.setReal(piece);
+//		transformer.Transform(-1); // FFTW_FORWARD
+//		complex_t *fourierCPUptr = transformer.fFourier.data;
+//
+//		// Normalize FFT
+//		real_t isize = 1.0 / (pieceDim * pieceDim);
+//		for (int i = 0; i < pieceDim * (pieceDim / 2 + 1); i++) {
+//			fourierGPUptr[i].real(fourierGPUptr[i].real() * isize);
+//			fourierGPUptr[i].imag(fourierGPUptr[i].imag() * isize);
+//		}
+//
+//		// Check FFT
+//		for (int i = 0; i < pieceDim * (pieceDim / 2 + 1); i++) {
+//			if (std::abs(fourierGPUptr[i] - fourierCPUptr[i]) > 10e-12) {
+//				std::cout << i << ", CPU: " << fourierCPUptr[i] << " GPU: " << fourierGPUptr[i] << std::endl;
+//			}
+//		}
+//
+//		fourierMagCPU.write("cpu_mag");
+//		fourierMagGPU.write("gpu_mag");
+// 	}
 }
