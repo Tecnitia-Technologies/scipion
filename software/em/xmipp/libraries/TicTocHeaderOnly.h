@@ -89,7 +89,7 @@ void TicToc::getNsecsRaw(long& sec, long& nsec) const {
 }
 
 std::string TicToc::getNsecsFormatted() const {
-
+	return "";
 }
 
 long TicToc::getUsecsRaw() const {
@@ -97,14 +97,14 @@ long TicToc::getUsecsRaw() const {
 }
 
 std::string TicToc::getUsecsFormatted() const {
-
+	return "";
 }
 
 long TicToc::getMillisRaw() const {
 	return sec * 1000 + nsec / 1000000;
 }
 std::string TicToc::getMillisFormatted() const {
-
+	return "";
 }
 
 long TicToc::getSecsRaw() const {
