@@ -130,7 +130,194 @@ void computePieceAvgStd(double* in, size_t pieceDim, size_t y0, size_t yEnd,
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
 
-void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother,
+void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
+	TicToc t;
+
+	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
+	size_t divNumberX         = std::ceil((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
+	size_t divNumberY         = std::ceil((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
+	size_t divNumber          = divNumberX * divNumberY;
+
+	size_t inNumPixels        = divNumber * pieceDim * pieceDim;
+	size_t inSize             = inNumPixels * sizeof(double);
+
+	size_t outNumPixels       = divNumber * pieceDim * (pieceDim / 2 + 1);
+	size_t outSize            = outNumPixels * sizeof(cufftDoubleComplex);
+
+	size_t pieceNumPixels     = pieceDim * pieceDim;
+	size_t pieceSize          = pieceNumPixels * sizeof(double);
+
+	size_t pieceFFTNumPixels  = pieceDim * (pieceDim / 2 + 1);
+	size_t pieceFFTSize       = pieceFFTNumPixels * sizeof(cufftDoubleComplex);
+
+	if (divNumberX <= 0 || divNumberY <= 0) {
+		std::cerr << "Error, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
+				  << "with " << overlap << " overlap and " << skipBorders << " skip borders," << std::endl
+				  << "resulted in divNumberX=" << divNumberX << ", divNumberY=" << divNumberY << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	// Host page-locked memory
+	double* in;
+	cuDoubleComplex* out;
+	t.tic();
+	CU_CHK(cudaMallocHost((void**) &in,  inSize));
+	CU_CHK(cudaMallocHost((void**) &out, outSize));
+	t.toc();
+	std::cout << "Time to malloc:\t\t" << t << std::endl;
+
+	// Device memory
+	double* d_in;
+	cuDoubleComplex*d_out;
+	t.tic();
+	CU_CHK(cudaMalloc((void**)&d_in, inSize));
+	CU_CHK(cudaMalloc((void**)&d_out, outSize));
+	t.toc();
+	std::cout << "Time to cuda malloc:\t\t" << t << std::endl;
+
+	// CuFFT Callback
+//	cufftCallbackStoreZ h_storeCallbackPtr;
+//	CU_CHK(cudaMemcpyFromSymbol(&h_storeCallbackPtr, d_storeCallbackPtr, sizeof(h_storeCallbackPtr)));
+
+	// CU FFT PLAN
+	 cudaStream_t* streams = new cudaStream_t[divNumber];
+	 cufftHandle*    plans = new cufftHandle[divNumber];
+
+	t.tic();
+	for (size_t n = 0; n < divNumber; ++n) {
+		CU_CHK(cudaStreamCreate(streams + n));
+		FFT_CHK(cufftPlan2d(plans + n, pieceDim, pieceDim, CUFFT_D2Z));
+		FFT_CHK(cufftSetStream(plans[n], streams[n]));
+	}
+	t.toc();
+	std::cout << "Time to plans and streams:\t" << t << std::endl;
+
+//	cufftHandle   plan;
+//	FFT_CHK(cufftPlan2d(&plan,pieceDim, pieceDim, CUFFT_D2Z));
+
+	// Iterate over all pieces
+	size_t step = (size_t) (((1 - overlap) * pieceDim));
+	for (size_t n = 0; n < divNumber; ++n) {
+		t.tic();
+		// Extract piece
+		size_t blocki = n / divNumberX;
+		size_t blockj = n % divNumberX;
+		size_t y0 = blocki * step + skipBorders * pieceDim;
+		size_t x0 = blockj * step + skipBorders * pieceDim;
+
+		// Test if the full piece is inside the micrograph
+		if (y0 + pieceDim > yDim)
+			y0 = yDim - pieceDim;
+
+		if (x0 + pieceDim > xDim)
+			x0 = xDim - pieceDim;
+
+		size_t yEnd = y0 + pieceDim;
+		size_t xEnd = x0 + pieceDim;
+
+		// ComputeAvgStdev
+		double avg = 0.0, stddev = 0.0;
+		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
+		t.toc();
+		std::cout << "Time to avg std:\t\t" << t << std::endl;
+
+		// Normalize and smooth
+		t.tic();
+		double a, b;
+		if (stddev != 0.0)
+			a = stddevF / stddev;
+		else
+			a = 0.0;
+
+		b = avgF - a * avg;
+
+		size_t it = n * pieceNumPixels; // Host page-locked memory iterator
+		size_t smoothIt = 0;
+		for (size_t y = y0; y < yEnd; y++) {
+			for (size_t x = x0; x < xEnd; x++) {
+				in[it] = (mic[y * xDim + x] * a + b) * pieceSmoother[smoothIt];
+				it++;
+				smoothIt++;
+			}
+		}
+		t.toc();
+		std::cout << "Time to apply avg std:\t\t" << t << std::endl;
+
+		double* d_inPtr           = d_in  + n * pieceNumPixels;
+		cuDoubleComplex* d_outPtr = d_out + n * pieceFFTNumPixels;
+
+		double* h_inPtr           = in  + n * pieceNumPixels;
+		cuDoubleComplex* h_outPtr = out + n * pieceFFTNumPixels;
+
+		// FFT
+		// Plan
+
+		// CuFFT Callback
+//		FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
+
+		// Execution
+		CU_CHK(cudaMemcpyAsync(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice, streams[n]));
+		FFT_CHK(cufftExecD2Z(plans[n], d_inPtr, d_outPtr));
+		CU_CHK(cudaMemcpyAsync(h_outPtr, d_outPtr, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
+
+//		CU_CHK(cudaMemcpy(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice));
+//		FFT_CHK(cufftExecD2Z(plan, d_inPtr, d_outPtr));
+//		CU_CHK(cudaDeviceSynchronize());
+//		CU_CHK(cudaMemcpy(h_outPtr, d_outPtr, pieceFFTSize, cudaMemcpyDeviceToHost));
+	}
+
+	// Expand + redux
+
+	size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
+	size_t YSIZE_FOURIER = pieceDim;
+	size_t XSIZE_REAL = pieceDim;
+	size_t YSIZE_REAL = pieceDim;
+
+	for (size_t n = 0; n < divNumber; ++n) {
+		// Wait for fft completed for this piece
+		CU_CHK(cudaStreamSynchronize(streams[n]));
+		CU_CHK(cudaStreamDestroy(streams[n]));
+		FFT_CHK(cufftDestroy(plans[n]));
+
+		t.tic();
+		cuDoubleComplex val;
+		double* ptrDest;
+		size_t iterator;
+		for (size_t i = 0; i < pieceDim; ++i) {
+			for (size_t j = 0; j < pieceDim; ++j) {
+				ptrDest = (double*) &psd[i * XSIZE_REAL + j];
+
+				if (j < XSIZE_FOURIER) {
+					iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
+				} else {
+					iterator  = n * pieceFFTNumPixels
+							+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
+									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
+				}
+				val = *(out + iterator);
+				double real = cuCreal(val);
+				double imag = cuCimag(val);
+				*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
+			}
+		}
+		t.toc();
+		std::cout << "Time to post:\t\t\t" << t << std::endl;
+	}
+
+	// Average
+	double idiv_Number = 1.0 / (divNumber);
+	for(size_t i = 0; i < pieceDim * pieceDim; ++i)	{
+		psd[i] *= idiv_Number;
+	}
+
+	// Free memory
+	CU_CHK(cudaFreeHost(in));
+	CU_CHK(cudaFreeHost(out));
+	CU_CHK(cudaFree(d_in));
+	CU_CHK(cudaFree(d_out));
+}
+
+void cudaRunGpuEstimateCTFwithInterResults(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother,
 			double* basePieces, double* normalizedSmoothPieces, std::complex<double>* piecesFFT, double* psd) {
 	TicToc t;
 
@@ -163,8 +350,6 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	cuDoubleComplex* out;
 	CU_CHK(cudaMallocHost((void**) &in,  inSize));
 	CU_CHK(cudaMallocHost((void**) &out, outSize));
-//	in  = (double*) malloc(inSize);
-//	out = (cuDoubleComplex*) malloc(outSize);
 
 	// Device memory
 	double* d_in;
@@ -238,7 +423,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		double* h_inPtr           = in  + n * pieceNumPixels;
 		cuDoubleComplex* h_outPtr = out + n * pieceFFTNumPixels;
 
-//		 Execution
+		// Execution
 		CU_CHK (cudaStreamCreate(streams + n));
 		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
 		FFT_CHK(cufftSetStream(plans[n], streams[n]));
@@ -286,18 +471,18 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
 				}
 
-//				if (iterator >= outNumPixels) {
-//					std::cerr << "i " << i << " j " << j << " " << out << " " << std::endl;
-//					std::cerr << "n " << n << " it " << iterator << std::endl;
-//					std::cerr << "outNumPixels " << outNumPixels << std::endl;
-//				}
-
 				val = *(out + iterator);
 				double real = cuCreal(val);
 				double imag = cuCimag(val);
-				*ptrDest += real * real + imag * imag;
+				*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
 			}
 		}
+	}
+
+	// Average
+	double idiv_Number = 1.0 / (divNumber);
+	for(size_t i = 0; i < pieceDim * pieceDim; ++i)	{
+		psd[i] *= idiv_Number;
 	}
 
 	// Free memory
@@ -305,5 +490,4 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaFreeHost(out));
 	CU_CHK(cudaFree(d_in));
 	CU_CHK(cudaFree(d_out));
-	//free(in);
 }
