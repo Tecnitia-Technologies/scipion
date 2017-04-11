@@ -327,7 +327,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 //					std::cerr << "outNumPixels " << outNumPixels << std::endl;
 //				}
 
-				val = out[n * pieceFFTNumPixels + jj * pieceDim + ii];
+				val = out[n * pieceFFTNumPixels + ii * pieceDim + jj];
 				double real = cuCreal(val);
 				double imag = cuCimag(val);
 //				if (n >= divNumber - 1)
