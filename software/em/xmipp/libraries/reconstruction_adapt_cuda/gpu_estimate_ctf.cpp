@@ -177,9 +177,15 @@ void ProgGpuEstimateCTF::run() {
 	size_t outNumPixels  = pieceDim * pieceDim;
 	size_t outSize       = outNumPixels * sizeof(double);
 
-	double* test = (double*) malloc(inSize);
+	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr);
 
-	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, test);
+	double idiv_Number = 1.0 / (div_Number * pieceDim * pieceDim);
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(psd())
+	{
+		DIRECT_MULTIDIM_ELEM(psd(),n)*=idiv_Number;
+	}
+
+	psd.write(fnOut);
 
 // 	for(int N = 1; N <= div_Number; N++) {
 //		// Extract piece

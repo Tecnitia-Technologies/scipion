@@ -206,7 +206,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	size_t pieceSize          = pieceNumPixels * sizeof(double);
 
 	size_t pieceFFTNumPixels  = pieceDim * (pieceDim / 2 + 1);
-	size_t pieceFFTSize       = pieceNumPixels * sizeof(cufftDoubleComplex);
+	size_t pieceFFTSize       = pieceFFTNumPixels * sizeof(cufftDoubleComplex);
 
 	if (divNumberX <= 0 || divNumberY <= 0) {
 		std::cerr << "Error, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
@@ -218,16 +218,16 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	// Host page-locked memory
 	double* in;
 	cuDoubleComplex* out;
-//	CU_CHK(cudaMallocHost((void**) &in,  inSize));
-//	CU_CHK(cudaMallocHost((void**) &out, outSize));
-	in  = (double*) malloc(inSize);
-	out = (cuDoubleComplex*) malloc(outSize);
+	CU_CHK(cudaMallocHost((void**) &in,  inSize));
+	CU_CHK(cudaMallocHost((void**) &out, outSize));
+//	in  = (double*) malloc(inSize);
+//	out = (cuDoubleComplex*) malloc(outSize);
 
 	// Device memory
-//	double* d_in;
-//	cuDoubleComplex*d_out;
-//	CU_CHK(cudaMalloc((void**)&d_in, inSize));
-//	CU_CHK(cudaMalloc((void**)&d_out, outSize));
+	double* d_in;
+	cuDoubleComplex*d_out;
+	CU_CHK(cudaMalloc((void**)&d_in, inSize));
+	CU_CHK(cudaMalloc((void**)&d_out, outSize));
 
 	// CuFFT Callback
 //	cufftCallbackStoreZ h_storeCallbackPtr;
@@ -235,7 +235,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 
 	// CU FFT PLAN
 	cudaStream_t* streams = new cudaStream_t[divNumber];
-//	cufftHandle*    plans = new cufftHandle[divNumber];
+	cufftHandle*    plans = new cufftHandle[divNumber];
 
 	// Iterate over all pieces
 	size_t step = (size_t) (((1 - overlap) * pieceDim));
@@ -281,35 +281,33 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 				smoothIt++;
 			}
 		}
-//		double* inPtr           = d_in  + n * piezeNumPixels;
-//		cuDoubleComplex* outPtr = d_out + n * piezeFFTNumPixels;
+		double* inPtr           = d_in  + n * pieceNumPixels;
+		cuDoubleComplex* outPtr = d_out + n * pieceFFTNumPixels;
 
-		// Execution
-//		CU_CHK (cudaStreamCreate(streams + n));
-//		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
-//		FFT_CHK(cufftSetStream(plans[n], streams[n]));
+//		 Execution
+		CU_CHK (cudaStreamCreate(streams + n));
+		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
+		FFT_CHK(cufftSetStream(plans[n], streams[n]));
 
-		//FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
+//		FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
 
-//		CU_CHK(cudaMemcpyAsync(d_in, in, pieceSize, cudaMemcpyHostToDevice, streams[n]));
-//		FFT_CHK(cufftExecD2Z(plans[n], inPtr, outPtr));
-//		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
+		CU_CHK(cudaMemcpyAsync(d_in, in, pieceSize, cudaMemcpyHostToDevice, streams[n]));
+		FFT_CHK(cufftExecD2Z(plans[n], inPtr, outPtr));
+		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
 	}
+
 	// Expand + redux
 	for (size_t n = 0; n < divNumber; ++n) {
-//		CU_CHK(cudaStreamSynchronize(streams[n]));
-//		CU_CHK(cudaStreamDestroy(streams[n]));
-
-//		std::cerr << n << " " << divNumber << std::endl;
-		cuDoubleComplex* ptrSrc = out + n * pieceFFTNumPixels;
+		CU_CHK(cudaStreamSynchronize(streams[n]));
+		CU_CHK(cudaStreamDestroy(streams[n]));
 
 		for (size_t i = 0; i < pieceDim; ++i) {
 			for (size_t j = 0; j < pieceDim; ++j) {
-//				if ( n>= 48)
-//				std::cerr << "i " << i << " j " << j << std::endl;
+//				if (n >= divNumber - 1)
+//					std::cerr << "i " << i << " j " << j << std::endl;
 				cuDoubleComplex val;
 				size_t ii, jj;
-				if (j < pieceDim) {
+				if (j < (pieceDim / 2 + 1)) {
 					jj = j;
 					ii = i;
 				} else {
@@ -317,10 +315,22 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 					jj = pieceDim - j;
 					ii = pieceDim - i;
 				}
-				val = ptrSrc[jj * pieceDim + ii];
+//				if (n >= divNumber - 1) {
+//					std::cerr << "ii " << ii << " jj " << jj << " " << out << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
+//					std::cerr << "n " << n << " pieceFFTNumPixels " << pieceFFTNumPixels << " pieceDim " << pieceDim << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
+//
+//				}
+
+//				if (n * pieceFFTNumPixels + jj * pieceDim + ii >= outNumPixels) {
+//					std::cerr << "ii " << ii << " jj " << jj << " " << out << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
+//					std::cerr << "n " << n << " it " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
+//					std::cerr << "outNumPixels " << outNumPixels << std::endl;
+//				}
+
+				val = out[n * pieceFFTNumPixels + jj * pieceDim + ii];
 				double real = cuCreal(val);
 				double imag = cuCimag(val);
-//				if (n >= 48)
+//				if (n >= divNumber - 1)
 //					std::cerr << "a" << std::endl;
 				psd[i * pieceDim + j] += real * real + imag * imag;
 			}
@@ -328,9 +338,9 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	}
 
 	// Free memory
-//	CU_CHK(cudaFreeHost(in));
-//	CU_CHK(cudaFreeHost(out));
-//	CU_CHK(cudaFree(d_in));
-//	CU_CHK(cudaFree(d_out));
+	CU_CHK(cudaFreeHost(in));
+	CU_CHK(cudaFreeHost(out));
+	CU_CHK(cudaFree(d_in));
+	CU_CHK(cudaFree(d_out));
 	//free(in);
 }
