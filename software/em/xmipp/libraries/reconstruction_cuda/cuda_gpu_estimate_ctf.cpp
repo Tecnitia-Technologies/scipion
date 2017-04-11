@@ -296,42 +296,50 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
 	}
 
+	double* tmp = new double[pieceFFTNumPixels];
+
 	// Expand + redux
 	for (size_t n = 0; n < divNumber; ++n) {
-//		CU_CHK(cudaStreamSynchronize(streams[n]));
-//		CU_CHK(cudaStreamDestroy(streams[n]));
+		CU_CHK(cudaStreamSynchronize(streams[n]));
+		CU_CHK(cudaStreamDestroy(streams[n]));
 
 		size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
 		size_t YSIZE_FOURIER = pieceDim;
 		size_t XSIZE_REAL = pieceDim;
 		size_t YSIZE_REAL = pieceDim;
 
+		for (int i = 0; i < pieceFFTNumPixels; i++) {
+			double real = cuCreal(out[n * pieceFFTNumPixels + i]);
+			double imag = cuCimag(out[n * pieceFFTNumPixels + i]);
+			tmp[i] = (real * real + imag * imag);
+		}
+
 		cuDoubleComplex val;
 		double* ptrDest;
 		size_t iterator;
+		// Expand
 		for (size_t i = 0; i < pieceDim; ++i) {
 			for (size_t j = 0; j < pieceDim; ++j) {
 				ptrDest = (double*) &psd[i * XSIZE_REAL + j];
 
 				if (j < XSIZE_FOURIER) {
-					iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
+					iterator  = i * XSIZE_FOURIER + j;
 				} else {
-					iterator  = n * pieceFFTNumPixels
-							+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
+					iterator  = (((YSIZE_REAL) - i) % (YSIZE_REAL))
 									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
 				}
 
-				if (iterator >= outNumPixels) {
+				if (iterator >= pieceFFTNumPixels) {
 					std::cerr << "i " << i << " j " << j << " " << out << " " << std::endl;
 					std::cerr << "n " << n << " it " << iterator << std::endl;
 					std::cerr << "outNumPixels " << outNumPixels << std::endl;
 				}
 
-				val = *(out + iterator);
-				double real = cuCreal(val);
-				double imag = cuCimag(val);
+//				val = *(tmp + iterator);
+//				double real = cuCreal(val);
+//				double imag = cuCimag(val);
 
-				*ptrDest += real * real + imag * imag;
+				*ptrDest += *(tmp + iterator);
 			}
 		}
 
@@ -372,6 +380,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 //		}
 	}
 
+	delete[] tmp;
 	// Free memory
 	CU_CHK(cudaFreeHost(in));
 	CU_CHK(cudaFreeHost(out));
