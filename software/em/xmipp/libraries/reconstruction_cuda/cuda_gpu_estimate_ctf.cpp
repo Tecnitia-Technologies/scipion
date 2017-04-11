@@ -272,7 +272,9 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 				double real = cuCreal(val);
 				double imag = cuCimag(val);
 
-				*ptrDest += real * real + imag * imag;
+				//*ptrDest += real * real + imag * imag;
+				*ptrDest += in[n * pieceFFTNumPixels
+							+ i * pieceDim + j];
 			}
 		}
 	}

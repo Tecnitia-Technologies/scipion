@@ -209,8 +209,8 @@ void ProgGpuEstimateCTF::run() {
 	}
 
 	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-		if (std::abs(tmp[i] - psdPtr[it]) > 10e-12) {
-			std::cout << "piece: " << N << " i " << i << ", CPU: " << tmp[i] << " GPU: " << psdPtr[it] << std::endl;
+		if (std::abs(tmp[i] - psdPtr[i]) > 10e-12) {
+			std::cout << " i " << i << ", CPU: " << tmp[i] << " GPU: " << psdPtr[i] << std::endl;
 		}
 	}
 
