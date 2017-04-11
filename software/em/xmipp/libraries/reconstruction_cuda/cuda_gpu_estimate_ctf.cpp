@@ -226,21 +226,21 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		cuDoubleComplex* outPtr = d_out + n * pieceFFTNumPixels;
 
 //		 Execution
-		CU_CHK (cudaStreamCreate(streams + n));
-		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
-		FFT_CHK(cufftSetStream(plans[n], streams[n]));
+//		CU_CHK (cudaStreamCreate(streams + n));
+//		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
+//		FFT_CHK(cufftSetStream(plans[n], streams[n]));
 
 //		FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
 
-		CU_CHK(cudaMemcpyAsync(d_in, in, pieceSize, cudaMemcpyHostToDevice, streams[n]));
-		FFT_CHK(cufftExecD2Z(plans[n], inPtr, outPtr));
-		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
+//		CU_CHK(cudaMemcpyAsync(d_in, in, pieceSize, cudaMemcpyHostToDevice, streams[n]));
+//		FFT_CHK(cufftExecD2Z(plans[n], inPtr, outPtr));
+//		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
 	}
 
 	// Expand + redux
 	for (size_t n = 0; n < divNumber; ++n) {
-		CU_CHK(cudaStreamSynchronize(streams[n]));
-		CU_CHK(cudaStreamDestroy(streams[n]));
+//		CU_CHK(cudaStreamSynchronize(streams[n]));
+//		CU_CHK(cudaStreamDestroy(streams[n]));
 
 		size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
 		size_t YSIZE_FOURIER = pieceDim;

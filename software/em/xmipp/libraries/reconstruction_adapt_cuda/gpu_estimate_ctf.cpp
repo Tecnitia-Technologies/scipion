@@ -187,23 +187,32 @@ void ProgGpuEstimateCTF::run() {
 
 	psd.write(fnOut);
 
-// 	for(int N = 1; N <= div_Number; N++) {
-//		// Extract piece
-//		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
-//		// Normalize piece
-//
-//		piece.statisticsAdjust(0, 1);
-//		STARTINGX(piece) = STARTINGY(piece) = 0;
-//		piece *= pieceSmoother;
-//
-//		size_t it = (N-1) * pieceDim * pieceDim;
-//		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-//			if (std::abs(piece.data[i] - test[it]) > 10e-12) {
-//				std::cout << "piece: " << N << " i " << i << ", CPU: " << piece.data[i] << " GPU: " << test[it] << std::endl;
-//			}
-//			it++;
-//		}
-// 	}
+	double* tmp = new double[pieceDim * pieceDim];
+	memset(tmp, 0, pieceDim * pieceDim * sizeof(double));
+
+ 	for(int N = 1; N <= div_Number; N++) {
+		// Extract piece
+		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
+		// Normalize piece
+
+		piece.statisticsAdjust(0, 1);
+		STARTINGX(piece) = STARTINGY(piece) = 0;
+		piece *= pieceSmoother;
+
+		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+			tmp[i] += piece.data[i];
+		}
+ 	}
+
+ 	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+		tmp[i] *=idiv_Number;
+	}
+
+	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+		if (std::abs(tmp[i] - psdPtr[it]) > 10e-12) {
+			std::cout << "piece: " << N << " i " << i << ", CPU: " << tmp[i] << " GPU: " << psdPtr[it] << std::endl;
+		}
+	}
 
 	return;
 
