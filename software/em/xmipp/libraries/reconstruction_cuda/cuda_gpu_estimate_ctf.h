@@ -30,6 +30,6 @@
 #define __CUDA_GPU_ESTIMATE_CTF__
 
 #include <complex>
-
-void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd);
+void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother,
+			double* basePieces, double* normalizedSmoothPieces, std::complex<double>* piecesFFT, double* psd);
 #endif

@@ -130,7 +130,8 @@ void computePieceAvgStd(double* in, size_t pieceDim, size_t y0, size_t yEnd,
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
 
-void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
+void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother,
+			double* basePieces, double* normalizedSmoothPieces, std::complex<double>* piecesFFT, double* psd) {
 	TicToc t;
 
 	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
@@ -176,8 +177,11 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 //	CU_CHK(cudaMemcpyFromSymbol(&h_storeCallbackPtr, d_storeCallbackPtr, sizeof(h_storeCallbackPtr)));
 
 	// CU FFT PLAN
-	cudaStream_t* streams = new cudaStream_t[divNumber];
-	cufftHandle*    plans = new cufftHandle[divNumber];
+	 cudaStream_t* streams = new cudaStream_t[divNumber];
+	 cufftHandle*    plans = new cufftHandle[divNumber];
+
+//	cufftHandle   plan;
+//	FFT_CHK(cufftPlan2d(&plan,pieceDim, pieceDim, CUFFT_D2Z));
 
 	// Iterate over all pieces
 	size_t step = (size_t) (((1 - overlap) * pieceDim));
@@ -201,6 +205,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		// ComputeAvgStdev
 		double avg = 0.0, stddev = 0.0;
 		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
+
 		// Normalize and smooth
 		double a, b;
 		if (stddev != 0.0)
@@ -217,13 +222,21 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 				//std::cerr << "x0 " << x0 << " y0 " << y0 << " xEnd " << xEnd << " yEnd " << yEnd << " x " << x << " y " << y << " p " << y * yDim + x << std::endl;
 				//std::cerr << "it " << it << " micIt " << y * step + x << " smoothIt " << smoothIt << std::endl;
 				in[it] = (mic[y * xDim + x] * a + b) * pieceSmoother[smoothIt];
+				////////////////////////////
+				// Copy piece
+				basePieces[it] = mic[y * xDim + x];
+				normalizedSmoothPieces[it] = (mic[y * xDim + x] * a + b) * pieceSmoother[smoothIt];
+
 				it++;
 				smoothIt++;
 			}
 		}
 
-		double* inPtr           = d_in  + n * pieceNumPixels;
-		cuDoubleComplex* outPtr = d_out + n * pieceFFTNumPixels;
+		double* d_inPtr           = d_in  + n * pieceNumPixels;
+		cuDoubleComplex* d_outPtr = d_out + n * pieceFFTNumPixels;
+
+		double* h_inPtr           = in  + n * pieceNumPixels;
+		cuDoubleComplex* h_outPtr = out + n * pieceFFTNumPixels;
 
 //		 Execution
 		CU_CHK (cudaStreamCreate(streams + n));
@@ -232,15 +245,26 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 
 //		FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
 
-		CU_CHK(cudaMemcpyAsync(d_in, in, pieceSize, cudaMemcpyHostToDevice, streams[n]));
-		FFT_CHK(cufftExecD2Z(plans[n], inPtr, outPtr));
-		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
+		CU_CHK(cudaMemcpyAsync(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice, streams[n]));
+		FFT_CHK(cufftExecD2Z(plans[n], d_inPtr, d_outPtr));
+		CU_CHK(cudaMemcpyAsync(h_outPtr, d_outPtr, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
+
+//		CU_CHK(cudaMemcpy(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice));
+//		FFT_CHK(cufftExecD2Z(plan, d_inPtr, d_outPtr));
+//		CU_CHK(cudaDeviceSynchronize());
+//		CU_CHK(cudaMemcpy(h_outPtr, d_outPtr, pieceFFTSize, cudaMemcpyDeviceToHost));
 	}
 
 	// Expand + redux
 	for (size_t n = 0; n < divNumber; ++n) {
 		CU_CHK(cudaStreamSynchronize(streams[n]));
 		CU_CHK(cudaStreamDestroy(streams[n]));
+
+		/////////////////////////////////////
+		// Copy fft
+		for (size_t i = 0; i < pieceFFTNumPixels; i++) {
+			piecesFFT[n * pieceFFTNumPixels + i] = std::complex<double>(out[n * pieceFFTNumPixels + i].x, out[n * pieceFFTNumPixels + i].y);
+		}
 
 		size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
 		size_t YSIZE_FOURIER = pieceDim;
@@ -271,9 +295,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 				val = *(out + iterator);
 				double real = cuCreal(val);
 				double imag = cuCimag(val);
-				double d = real * real + imag * imag;
-				d *= d * pieceDim * pieceDim;
-				*ptrDest += d;
+				*ptrDest += real * real + imag * imag;
 			}
 		}
 	}

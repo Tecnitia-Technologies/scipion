@@ -146,6 +146,22 @@ void ProgGpuEstimateCTF::computeDivisions(const Image<T>& mic,
 	}
 }
 
+const double TOL = 10e-6;
+
+template<typename T>
+void checkArray(T* cpu, T* gpu, size_t size, std::string name, bool printErr=false, bool printNum=true) {
+	size_t err = 0;
+	for (size_t i = 0; i < size; ++i) {
+		if (std::abs(cpu[i] - gpu[i]) > TOL) {
+			err++;
+			if(printErr)
+				std::cerr << name << " i:\t" << i << " cpu: \t" << cpu[i] << " gpu:\t" << gpu[i] << std::endl;
+		}
+	}
+	if (err > 0)
+		std::cerr << name << " numErr: " << err << std::endl;
+}
+
 void ProgGpuEstimateCTF::run() {
 	// Input
 	Image<real_t> mic;
@@ -168,6 +184,10 @@ void ProgGpuEstimateCTF::run() {
     MultidimArray<real_t> pieceSmoother;
     constructPieceSmoother(piece, pieceSmoother);
 
+    // Intermediate results
+    double* basePieces 				= new double[pieceDim * pieceDim * div_Number];
+    double* normalizedSmoothPieces 	= new double[pieceDim * pieceDim * div_Number];
+    std::complex<double>* piecesFFT = new std::complex<double>[pieceDim * pieceDim * div_Number];
 
 	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
 
@@ -177,46 +197,58 @@ void ProgGpuEstimateCTF::run() {
 	size_t outNumPixels  = pieceDim * pieceDim;
 	size_t outSize       = outNumPixels * sizeof(double);
 
-	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr);
+	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, basePieces, normalizedSmoothPieces, piecesFFT, psdPtr);
 
-	double idiv_Number = 1.0 / (div_Number);
+	double idiv_Number = 1.0 / (div_Number * pieceDim * pieceDim);
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(psd())
 	{
 		DIRECT_MULTIDIM_ELEM(psd(),n)*=idiv_Number;
 	}
 
+	////////////////////////////////////////////////////////////////////////////////////////
+	// CPU COMPUTE
+
+	size_t pieceIterator, pieceFFTIterator;
+ 	for(int N = 1; N <= div_Number; N++) {
+		pieceIterator    = (N-1) * pieceDim * pieceDim;
+		pieceFFTIterator = (N-1) * pieceDim * (pieceDim / 2 + 1);
+ 		// Extract piece
+		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
+
+		///////////////////////////////
+		checkArray(piece.data, basePieces + pieceIterator, pieceDim * pieceDim, "base");
+
+		// Normalize piece
+		piece.statisticsAdjust(0, 1);
+		STARTINGX(piece) = STARTINGY(piece) = 0;
+		piece *= pieceSmoother;
+
+		///////////////////////////////
+		checkArray(piece.data, normalizedSmoothPieces + pieceIterator, pieceDim * pieceDim, "normalize");
+
+		// Test fourier
+		Image<real_t> fourierMagCPU;
+		Image<real_t> fourierMagGPU;
+
+		fourierMagCPU().initZeros(pieceDim, pieceDim);
+		fourierMagGPU().initZeros(pieceDim, pieceDim);
+
+		FourierTransformer transformer;
+	//	transformer.setNormalizationSign(0);
+
+		// CPU FFT
+		transformer.setReal(piece);
+		transformer.Transform(-1); // FFTW_FORWARD
+		complex_t *fourierCPUptr = transformer.fFourier.data;
+
+		///////////////////////////////
+		checkArray(fourierCPUptr, piecesFFT + pieceFFTIterator, pieceDim * (pieceDim / 2 + 1), "fft");
+ 	}
+
 	psd.write(fnOut);
-//
-//	double* tmp = new double[pieceDim * pieceDim];
-//	memset(tmp, 0, pieceDim * pieceDim * sizeof(double));
-//
-// 	for(int N = 1; N <= div_Number; N++) {
-//		// Extract piece
-//		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
-//		// Normalize piece
-//
-//		piece.statisticsAdjust(0, 1);
-//		STARTINGX(piece) = STARTINGY(piece) = 0;
-//		piece *= pieceSmoother;
-//
-//		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-//			tmp[i] += piece.data[i];
-//		}
-// 	}
-//
-// 	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-//		tmp[i] *=idiv_Number;
-//	}
-//
-//	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-//		if (std::abs(tmp[i] - psdPtr[i]) > 10e-12) {
-//			std::cout << " i " << i << ", CPU: " << tmp[i] << " GPU: " << psdPtr[i] << std::endl;
-//		}
-//	}
 
 	return;
-
-
+//
 // 	for(int N = 1; N <= div_Number; N++) {
 // 		TicToc t;
 // 		t.tic();
