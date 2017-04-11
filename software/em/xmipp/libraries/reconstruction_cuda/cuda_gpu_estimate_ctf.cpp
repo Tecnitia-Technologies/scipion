@@ -298,43 +298,78 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 
 	// Expand + redux
 	for (size_t n = 0; n < divNumber; ++n) {
-		CU_CHK(cudaStreamSynchronize(streams[n]));
-		CU_CHK(cudaStreamDestroy(streams[n]));
+//		CU_CHK(cudaStreamSynchronize(streams[n]));
+//		CU_CHK(cudaStreamDestroy(streams[n]));
 
+		size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
+		size_t YSIZE_FOURIER = pieceDim;
+		size_t XSIZE_REAL = pieceDim;
+		size_t YSIZE_REAL = pieceDim;
+
+		cuDoubleComplex val;
+		double* ptrDest;
+		size_t iterator;
 		for (size_t i = 0; i < pieceDim; ++i) {
 			for (size_t j = 0; j < pieceDim; ++j) {
-//				if (n >= divNumber - 1)
-//					std::cerr << "i " << i << " j " << j << std::endl;
-				cuDoubleComplex val;
-				size_t ii, jj;
-				if (j < (pieceDim / 2 + 1)) {
-					jj = j;
-					ii = i;
+				ptrDest = (double*) &psd[i * XSIZE_REAL + j];
+
+				if (j < XSIZE_FOURIER) {
+					iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
 				} else {
-					// f(x,y) = f(-x, -y)
-					jj = pieceDim - j;
-					ii = pieceDim - i;
+					iterator  = n * pieceFFTNumPixels
+							+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
+									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
 				}
-//				if (n >= divNumber - 1) {
-//					std::cerr << "ii " << ii << " jj " << jj << " " << out << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
-//					std::cerr << "n " << n << " pieceFFTNumPixels " << pieceFFTNumPixels << " pieceDim " << pieceDim << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
-//
-//				}
 
-//				if (n * pieceFFTNumPixels + jj * pieceDim + ii >= outNumPixels) {
-//					std::cerr << "ii " << ii << " jj " << jj << " " << out << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
-//					std::cerr << "n " << n << " it " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
-//					std::cerr << "outNumPixels " << outNumPixels << std::endl;
-//				}
+				if (iterator >= outNumPixels) {
+					std::cerr << "i " << i << " j " << j << " " << out << " " << std::endl;
+					std::cerr << "n " << n << " it " << iterator << std::endl;
+					std::cerr << "outNumPixels " << outNumPixels << std::endl;
+				}
 
-				val = out[n * pieceFFTNumPixels + ii * pieceDim + jj];
+				val = *(out + iterator);
 				double real = cuCreal(val);
 				double imag = cuCimag(val);
-//				if (n >= divNumber - 1)
-//					std::cerr << "a" << std::endl;
-				psd[i * pieceDim + j] += real * real + imag * imag;
+
+				*ptrDest += real * real + imag * imag;
 			}
 		}
+
+
+//		for (size_t i = 0; i < pieceDim; ++i) {
+//			for (size_t j = 0; j < pieceDim; ++j) {
+////				if (n >= divNumber - 1)
+////					std::cerr << "i " << i << " j " << j << std::endl;
+//				cuDoubleComplex val;
+//				size_t ii, jj;
+//				if (j < (pieceDim / 2 + 1)) {
+//					jj = j;
+//					ii = i;
+//				} else {
+//					// f(x,y) = f(-x, -y)
+//					jj = pieceDim - j;
+//					ii = pieceDim - i;
+//				}
+////				if (n >= divNumber - 1) {
+////					std::cerr << "ii " << ii << " jj " << jj << " " << out << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
+////					std::cerr << "n " << n << " pieceFFTNumPixels " << pieceFFTNumPixels << " pieceDim " << pieceDim << " " << n * pieceFFTNumPixels + jj * pieceDim + ii << std::endl;
+////
+////				}
+//
+//				if ((n * pieceFFTNumPixels + ii * (pieceDim / 2 + 1) + jj) >= outNumPixels) {
+//					std::cerr << "ii " << ii << " jj " << jj << " " << out << " " << std::endl;
+//					std::cerr << "n " << n << " it " << n * pieceFFTNumPixels + ii * (pieceDim / 2 + 1) + jj << std::endl;
+//					std::cerr << "outNumPixels " << outNumPixels << std::endl;
+//				}
+//
+//				val = out[n * pieceFFTNumPixels + ii * (pieceDim / 2 + 1) + jj];
+//				double real = cuCreal(val);
+//				double imag = cuCimag(val);
+////				if (n >= divNumber - 1)
+////					std::cerr << "a" << std::endl;
+//				psd[i * pieceDim + j] += real * real + imag * imag;
+//			}
+//		}
 	}
 
 	// Free memory
