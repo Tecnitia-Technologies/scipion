@@ -226,7 +226,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		cuDoubleComplex* outPtr = d_out + n * pieceFFTNumPixels;
 
 //		 Execution
-		/CU_CHK (cudaStreamCreate(streams + n));
+		CU_CHK (cudaStreamCreate(streams + n));
 		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
 		FFT_CHK(cufftSetStream(plans[n], streams[0]));
 
