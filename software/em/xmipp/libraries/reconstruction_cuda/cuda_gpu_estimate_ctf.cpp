@@ -228,13 +228,13 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 //		 Execution
 		CU_CHK (cudaStreamCreate(streams + n));
 		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
-		FFT_CHK(cufftSetStream(plans[n], streams[0]));
+		FFT_CHK(cufftSetStream(plans[n], streams[n]));
 
 //		FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
 
-		CU_CHK(cudaMemcpyAsync(d_in, in, pieceSize, cudaMemcpyHostToDevice, streams[0]));
+		CU_CHK(cudaMemcpyAsync(d_in, in, pieceSize, cudaMemcpyHostToDevice, streams[n]));
 		FFT_CHK(cufftExecD2Z(plans[n], inPtr, outPtr));
-		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[0]));
+		CU_CHK(cudaMemcpyAsync(out, d_out, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
 	}
 
 	// Expand + redux
