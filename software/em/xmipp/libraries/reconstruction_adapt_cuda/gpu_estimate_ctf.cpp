@@ -179,40 +179,40 @@ void ProgGpuEstimateCTF::run() {
 
 	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr);
 
-	double idiv_Number = 1.0 / (div_Number * pieceDim * pieceDim);
+	double idiv_Number = 1.0 / (div_Number);
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(psd())
 	{
 		DIRECT_MULTIDIM_ELEM(psd(),n)*=idiv_Number;
 	}
 
 	psd.write(fnOut);
-
-	double* tmp = new double[pieceDim * pieceDim];
-	memset(tmp, 0, pieceDim * pieceDim * sizeof(double));
-
- 	for(int N = 1; N <= div_Number; N++) {
-		// Extract piece
-		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
-		// Normalize piece
-
-		piece.statisticsAdjust(0, 1);
-		STARTINGX(piece) = STARTINGY(piece) = 0;
-		piece *= pieceSmoother;
-
-		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-			tmp[i] += piece.data[i];
-		}
- 	}
-
- 	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-		tmp[i] *=idiv_Number;
-	}
-
-	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
-		if (std::abs(tmp[i] - psdPtr[i]) > 10e-12) {
-			std::cout << " i " << i << ", CPU: " << tmp[i] << " GPU: " << psdPtr[i] << std::endl;
-		}
-	}
+//
+//	double* tmp = new double[pieceDim * pieceDim];
+//	memset(tmp, 0, pieceDim * pieceDim * sizeof(double));
+//
+// 	for(int N = 1; N <= div_Number; N++) {
+//		// Extract piece
+//		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
+//		// Normalize piece
+//
+//		piece.statisticsAdjust(0, 1);
+//		STARTINGX(piece) = STARTINGY(piece) = 0;
+//		piece *= pieceSmoother;
+//
+//		for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+//			tmp[i] += piece.data[i];
+//		}
+// 	}
+//
+// 	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+//		tmp[i] *=idiv_Number;
+//	}
+//
+//	for (size_t i = 0; i < pieceDim * pieceDim; i++) {
+//		if (std::abs(tmp[i] - psdPtr[i]) > 10e-12) {
+//			std::cout << " i " << i << ", CPU: " << tmp[i] << " GPU: " << psdPtr[i] << std::endl;
+//		}
+//	}
 
 	return;
 
