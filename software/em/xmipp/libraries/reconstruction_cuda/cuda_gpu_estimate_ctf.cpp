@@ -130,6 +130,17 @@ void computePieceAvgStd(double* in, size_t pieceDim, size_t y0, size_t yEnd,
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
 
+
+__global__ void smooth(double* in, double* pieceSmoother, size_t pieceNumPixels, size_t pieceDim, double a, double b){
+
+	int x = threadIdx.x;
+	int y = threadIdx.y;
+
+	size_t it = y * pieceDim + x; // Host page-locked memory iterator
+
+	in[it] = (in[it] * a + b) * pieceSmoother[y*pieceDim+x];
+}
+
 void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
 	TicToc t;
 
@@ -174,6 +185,11 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaMalloc((void**)&d_out, outSize));
 	t.toc();
 	std::cout << "Time to cuda malloc:\t\t" << t << std::endl;
+
+
+	double* d_pieceSmoother;
+	CU_CHK(cudaMalloc((void**)&d_pieceSmoother, pieceSize));
+	CU_CHK(cudaMemcpy(d_pieceSmoother, pieceSmoother, pieceSize, cudaMemcpyHostToDevice));
 
 	// CuFFT Callback
 //	cufftCallbackStoreZ h_storeCallbackPtr;
@@ -222,7 +238,6 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		std::cout << "Time to avg std:\t\t" << t << std::endl;
 
 		// Normalize and smooth
-		t.tic();
 		double a, b;
 		if (stddev != 0.0)
 			a = stddevF / stddev;
@@ -231,24 +246,20 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 
 		b = avgF - a * avg;
 
-		size_t it = n * pieceNumPixels; // Host page-locked memory iterator
-		size_t smoothIt = 0;
-		for (size_t y = y0; y < yEnd; y++) {
-			for (size_t x = x0; x < xEnd; x++) {
-				in[it] = (mic[y * xDim + x] * a + b) * pieceSmoother[smoothIt];
-				it++;
-				smoothIt++;
-			}
-		}
-		t.toc();
-		std::cout << "Time to apply avg std:\t\t" << t << std::endl;
-
 		double* d_inPtr           = d_in  + n * pieceNumPixels;
 		cuDoubleComplex* d_outPtr = d_out + n * pieceFFTNumPixels;
 
 		double* h_inPtr           = in  + n * pieceNumPixels;
 		cuDoubleComplex* h_outPtr = out + n * pieceFFTNumPixels;
 
+
+		for(size_t y = 0; y < pieceDim; y++){
+			cudaMemcpyAsync(d_inPtr + y * pieceDim, mic + (y0 + y) * yDim + x0 , pieceDim* sizeof(double), cudaMemcpyHostToDevice, streams[n]);
+		}
+		dim3 dimBlock(pieceDim, pieceDim, 1);
+		dim3 dimGrid(1, 1, 1);
+		//smooth(double* in, double* pieceSmoother, size_t n, size_t pieceNumPixels, size_t pieceDim, double a, double b)
+		smooth<<<dimGrid, dimBlock, 0, streams[n]>>>(d_inPtr, d_pieceSmoother, pieceNumPixels, pieceDim, a, b);
 		// FFT
 		// Plan
 
@@ -256,7 +267,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 //		FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
 
 		// Execution
-		CU_CHK(cudaMemcpyAsync(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice, streams[n]));
+		// CU_CHK(cudaMemcpyAsync(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice, streams[n]));
 		FFT_CHK(cufftExecD2Z(plans[n], d_inPtr, d_outPtr));
 		CU_CHK(cudaMemcpyAsync(h_outPtr, d_outPtr, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
 
@@ -301,7 +312,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 			}
 		}
 		t.toc();
-		std::cout << "Time to post:\t\t\t" << t << std::endl;
+		std::cout << "Time tooo post:\t\t\t" << t << std::endl;
 	}
 
 	// Average
@@ -315,6 +326,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaFreeHost(out));
 	CU_CHK(cudaFree(d_in));
 	CU_CHK(cudaFree(d_out));
+	CU_CHK(cudaFree(d_pieceSmoother));
 }
 
 void cudaRunGpuEstimateCTFwithInterResults(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother,
