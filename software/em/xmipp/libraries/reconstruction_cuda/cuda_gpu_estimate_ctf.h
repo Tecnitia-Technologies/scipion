@@ -29,6 +29,8 @@
 #ifndef __CUDA_GPU_ESTIMATE_CTF__
 #define __CUDA_GPU_ESTIMATE_CTF__
 
+#define USE_PINNED
+
 #include <complex>
 void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd);
 #endif

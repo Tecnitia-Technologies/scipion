@@ -36,6 +36,7 @@ class TicToc {
 private:
 
 public:
+	bool active;
 	timespec start, end;
 
 	time_t sec;
@@ -43,11 +44,13 @@ public:
 
 	void diff();
 
-	TicToc() {
+	TicToc(bool active = true) :
+			active(active) {
 	}
 
 	void tic();
 	void toc();
+	void toc(const string& str);
 
 	void getNsecsRaw(long& sec, long& nsec) const;
 	std::string getNsecsFormatted() const;
@@ -60,6 +63,12 @@ public:
 
 	long getSecsRaw() const;
 	std::string getSecsFormatted() const;
+
+	void print(const string& str) {
+		if (active) {
+			std::cout << str << this << std::endl;
+		}
+	}
 };
 
 std::ostream& operator<<(std::ostream& out, const TicToc& f) {
@@ -81,6 +90,11 @@ inline void TicToc::tic() {
 inline void TicToc::toc() {
 	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
 	diff();
+}
+
+inline void TicToc::toc(const string& str) {
+	toc();
+	print(str);
 }
 
 void TicToc::getNsecsRaw(long& sec, long& nsec) const {

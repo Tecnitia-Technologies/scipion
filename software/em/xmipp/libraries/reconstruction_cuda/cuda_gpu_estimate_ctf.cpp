@@ -25,6 +25,8 @@
  *  All comments concerning this program package may be sent to the
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
+#include "cuda_gpu_estimate_ctf.h"
+
 #include <stdio.h>
 
 #include <complex>
@@ -136,7 +138,7 @@ __global__ void smooth(double* piece, double* mic, double* pieceSmoother, size_t
 const double avgF = 0.0, stddevF = 1.0;
 
 void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
-	TicToc t;
+	TicToc t, tAvg(false), tPost(true);
 
 	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
 	size_t divNumberX         = std::ceil((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
@@ -165,10 +167,12 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	// Host page-locked memory
 	cuDoubleComplex* h_fourier;
 	t.tic();
-//	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
+#ifdef USE_PINNED
+	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
+#else
 	h_fourier = (cuDoubleComplex*) malloc(outSize);
-	t.toc();
-	std::cout << "Time to malloc:\t\t\t" << t << std::endl;
+#endif
+	t.toc("Time to malloc:\t\t\t");
 
 	// Device memory
 	double* d_mic;
@@ -180,14 +184,12 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaMalloc((void**)&d_pieces,  inSize));
 	CU_CHK(cudaMalloc((void**)&d_fourier, outSize));
 	CU_CHK(cudaMalloc((void**)&d_pieceSmoother, pieceSize));
-	t.toc();
-	std::cout << "Time to cuda malloc:\t\t" << t << std::endl;
+	t.toc("Time to cuda malloc:\t\t");
 
 	t.tic();
 	CU_CHK(cudaMemcpy(d_mic, mic, xDim * yDim * sizeof(double), cudaMemcpyHostToDevice));
 	CU_CHK(cudaMemcpy(d_pieceSmoother, pieceSmoother, pieceSize, cudaMemcpyHostToDevice));
-	t.toc();
-	std::cout << "Time to init memcpy:\t\t" << t << std::endl;
+	t.toc("Time to init memcpy:\t\t");
 
 	// Kernel config
 	dim3 dimBlock(K_SMOOTH_BLOCK_SIZE_X, K_SMOOTH_BLOCK_SIZE_Y);
@@ -208,13 +210,12 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		FFT_CHK(cufftPlan2d(plans + n, pieceDim, pieceDim, CUFFT_D2Z));
 		FFT_CHK(cufftSetStream(plans[n], streams[n]));
 	}
-	t.toc();
-	std::cout << "Time to plans and streams:\t" << t << std::endl;
+	t.toc("Time to plans and streams:\t");
 
 	// Iterate over all pieces
 	size_t step = (size_t) (((1 - overlap) * pieceDim));
 	for (size_t n = 0; n < divNumber; ++n) {
-//		t.tic();
+		tAvg.tic();
 		// Extract piece
 		size_t blocki = n / divNumberX;
 		size_t blockj = n % divNumberX;
@@ -234,8 +235,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		// ComputeAvgStdev
 		double avg = 0.0, stddev = 0.0;
 		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
-//		t.toc();
-//		std::cout << "Time to avg std:\t\t" << t << std::endl;
+		tAvg.toc("Time to avg std:\t\t");
 
 		// Normalize and smooth
 		double a, b;
@@ -272,7 +272,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		CU_CHK(cudaStreamDestroy(streams[n]));
 		FFT_CHK(cufftDestroy(plans[n]));
 
-		t.tic();
+		tPost.tic();
 		cuDoubleComplex val;
 		double* ptrDest;
 		size_t iterator;
@@ -293,18 +293,23 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 				*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
 			}
 		}
-		t.toc();
-		std::cout << "Time tooo post:\t\t\t" << t << std::endl;
+		tPost.toc("Time tooo post:\t\t\t");
 	}
 
 	// Average
+	t.tic();
 	double idiv_Number = 1.0 / (divNumber);
 	for(size_t i = 0; i < pieceDim * pieceDim; ++i)	{
 		psd[i] *= idiv_Number;
 	}
+	t.toc("Final reduction:\t\t\t");
 
 	// Free memory
-//	CU_CHK(cudaFreeHost(h_fourier));
+#ifdef USE_PINNED
+	CU_CHK(cudaFreeHost(h_fourier));
+#else
+	free(h_fourier);
+#endif
 	CU_CHK(cudaFree(d_pieces));
 	CU_CHK(cudaFree(d_fourier));
 	CU_CHK(cudaFree(d_pieceSmoother));
