@@ -137,16 +137,25 @@ __global__ void smooth(double* piece, double* mic, double* pieceSmoother, size_t
 
 __global__ void post(cuDoubleComplex* fft, double* out, size_t pieceDim, size_t n, size_t pieceFFTNumPixels) {
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
-	cuDoubleComplex* r;
-	int c = x/pieceDim;
-	int w = x%pieceDim;
 
-	if(c != w){
-		r = fft[x];
-		out[x+1+w] = r; //Its own position plus 1 (access) and module (corresponding to the row)
-		out[((T*T)-1)-(x-1-1)] = r; 	//(T*T)-1 accessing to the last element.
-										//(x-1+c) accessing to the inverse of the element in the square
+	cuDoubleComplex* res = fft[x];
+	int fila = (-2*pieceDim + 1 + sqrt((2*pieceDim-1) * (2*pieceDim-1) - 8 * p)) / -2;
+	int triangular = (((fila-1)*(fila-1)) + (fila-1))/2;
+
+	if((x+trianguar)%pieceDim != 0){
+		out[x + triangular] = res;
+		out[(pieceDim*pieceDim) - 1 - x - triangular] = res;
 	}
+
+	//int c = x/pieceDim;
+	//int w = x%pieceDim;
+
+	//if(c != w){
+	//	r = fft[x];
+	//	out[x+1+w] = res; //Its own position plus 1 (access) and module (corresponding to the row)
+	//	out[((T*T)-1)-(x-1-1)] = r; 	//(T*T)-1 accessing to the last element.
+										//(x-1+c) accessing to the inverse of the element in the square
+	//}
 
 //	for (size_t i = 0; i < pieceDim; ++i) {
 //		for (size_t j = 0; j < pieceDim; ++j) {
@@ -165,7 +174,10 @@ __global__ void post(cuDoubleComplex* fft, double* out, size_t pieceDim, size_t 
 //			*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
 //		}
 //	}
+
 }
+
+
 
 
 
