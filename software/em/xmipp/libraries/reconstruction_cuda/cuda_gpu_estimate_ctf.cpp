@@ -139,7 +139,7 @@ __global__ void post(cuDoubleComplex* fft, double* out, size_t pieceDim, size_t 
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
 
 	cuDoubleComplex* res = fft[x];
-	int fila = (-2*pieceDim + 1 + sqrt((2*pieceDim-1) * (2*pieceDim-1) - 8 * p)) / -2;
+	int fila = (-2*pieceDim + 1 + __fsqrt_rd((2*pieceDim-1) * (2*pieceDim-1) - 8 * p)) / -2;
 	int triangular = (((fila-1)*(fila-1)) + (fila-1))/2;
 
 	if((x+trianguar)%pieceDim != 0){
