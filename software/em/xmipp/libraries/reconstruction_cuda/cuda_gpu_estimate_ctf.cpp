@@ -135,51 +135,34 @@ __global__ void smooth(double* piece, double* mic, double* pieceSmoother, size_t
 }
 
 
-//__global__ void post(cuDoubleComplex* fft, double* out, size_t pieceDim, size_t n, size_t pieceFFTNumPixels) {
-//	int x = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void post(cuDoubleComplex* fft, cuDoubleComplex* out, size_t pieceDim, size_t n, size_t pieceFFTNumPixels) {
+	int x = blockIdx.x * blockDim.x + threadIdx.x;
+	int fila = ((-2)*pieceDim + 1 + sqrtf(((2 * pieceDim - 1) * (2 * pieceDim - 1)) - 8 * x)) * (-0.5);
+
+	int triangular = ((fila)*(fila + 1))/2;
+
+	cuDoubleComplex r = fft[x];
+	out[x + triangular] = r;
+	out[(pieceDim*pieceDim)-1-x-triangular] = r;
+
+//	for (size_t i = 0; i < pieceDim; ++i) {
+//		for (size_t j = 0; j < pieceDim; ++j) {
+//			ptrDest = (double*) &psd[i * XSIZE_REAL + j];
 //
-//	cuDoubleComplex* res = fft[x];
-//	int fila = (-2*pieceDim + 1 + __fsqrt_rd((2*pieceDim-1) * (2*pieceDim-1) - 8 * p)) / -2;
-//	int triangular = (((fila-1)*(fila-1)) + (fila-1))/2;
-//
-//	if((x+trianguar)%pieceDim != 0){
-//		out[x + triangular] = res;
-//		out[(pieceDim*pieceDim) - 1 - x - triangular] = res;
+//			if (j < XSIZE_FOURIER) {
+//				iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
+//			} else {
+//				iterator  = n * pieceFFTNumPixels
+//						+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
+//								* XSIZE_FOURIER + ((XSIZE_REAL) - j);
+//			}
+//			val = *(h_fourier + iterator);
+//			double real = cuCreal(val);
+//			double imag = cuCimag(val);
+//			*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
+//		}
 //	}
-//
-//	//int c = x/pieceDim;
-//	//int w = x%pieceDim;
-//
-//	//if(c != w){
-//	//	r = fft[x];
-//	//	out[x+1+w] = res; //Its own position plus 1 (access) and module (corresponding to the row)
-//	//	out[((T*T)-1)-(x-1-1)] = r; 	//(T*T)-1 accessing to the last element.
-//										//(x-1+c) accessing to the inverse of the element in the square
-//	//}
-//
-////	for (size_t i = 0; i < pieceDim; ++i) {
-////		for (size_t j = 0; j < pieceDim; ++j) {
-////			ptrDest = (double*) &psd[i * XSIZE_REAL + j];
-////
-////			if (j < XSIZE_FOURIER) {
-////				iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
-////			} else {
-////				iterator  = n * pieceFFTNumPixels
-////						+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
-////								* XSIZE_FOURIER + ((XSIZE_REAL) - j);
-////			}
-////			val = *(h_fourier + iterator);
-////			double real = cuCreal(val);
-////			double imag = cuCimag(val);
-////			*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
-////		}
-////	}
-//
-//}
-
-
-
-
+}
 
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
@@ -340,6 +323,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 				*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
 			}
 		}
+//TODO: gpu version check
 //		post<<<dimGrid, dimBlock, 0, streams[n]>>>(d_fft, define_out, d_pieceSmoother, pieceDim, y0, x0, yDim, a, b);
 //		*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
 		tPost.toc("Time tooo post:\t\t\t");
@@ -351,7 +335,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	for(size_t i = 0; i < pieceDim * pieceDim; ++i)	{
 		psd[i] *= idiv_Number;
 	}
-	t.toc("Final reduction:\t\t\t");
+	t.toc("Final reduction:\t\t");
 
 	// Free memory
 #ifdef USE_PINNED

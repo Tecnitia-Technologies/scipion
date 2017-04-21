@@ -66,7 +66,16 @@ public:
 
 	void print(const string& str) {
 		if (active) {
-			std::cout << str << this << std::endl;
+
+			string s;
+			std::stringstream ss;
+			ss << setw(9) << setfill('0') << nsec;
+			s = ss.str();
+			for (int i = s.size() - 3; i > 0; i -= 3) {
+				s.insert(s.begin() + i, ',');
+			}
+
+			std::cout << str << "Secs: " << sec << " Nsecs: " << setw(11) << s << std::endl;
 		}
 	}
 };
