@@ -187,7 +187,7 @@ void ProgGpuEstimateCTF::run() {
     // CU FFT
 	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr);
 
-    // Intermediate results
+	// Intermediate results
 //    double* basePieces 				= new double[pieceDim * pieceDim * div_Number];
 //    double* normalizedSmoothPieces 	= new double[pieceDim * pieceDim * div_Number];
 //    std::complex<double>* piecesFFT = new std::complex<double>[pieceDim * pieceDim * div_Number];

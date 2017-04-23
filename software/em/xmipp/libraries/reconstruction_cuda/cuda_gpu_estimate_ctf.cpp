@@ -168,8 +168,9 @@ __global__ void post(cuDoubleComplex* fft, cuDoubleComplex* out, size_t pieceDim
 const double avgF = 0.0, stddevF = 1.0;
 
 void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
-	TicToc t, tAvg(false), tPost(true);
+	TicToc t(true), tAvg(false), tPost(false), tTotal(true), tTotalCompute(true);
 
+	tTotal.tic();
 	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
 	size_t divNumberX         = std::ceil((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
 	size_t divNumberY         = std::ceil((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
@@ -194,16 +195,6 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		exit(EXIT_FAILURE);
 	}
 
-	// Host page-locked memory
-	cuDoubleComplex* h_fourier;
-	t.tic();
-#ifdef USE_PINNED
-	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
-#else
-	h_fourier = (cuDoubleComplex*) malloc(outSize);
-#endif
-	t.toc("Time to malloc:\t\t\t");
-
 	// Device memory
 	double* d_mic;
 	double* d_pieces;
@@ -215,6 +206,16 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaMalloc((void**)&d_fourier, outSize));
 	CU_CHK(cudaMalloc((void**)&d_pieceSmoother, pieceSize));
 	t.toc("Time to cuda malloc:\t\t");
+
+	// Host page-locked memory
+	cuDoubleComplex* h_fourier;
+	t.tic();
+#ifdef USE_PINNED
+	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
+#else
+	h_fourier = (cuDoubleComplex*) malloc(outSize);
+#endif
+	t.toc("Time to malloc:\t\t\t");
 
 	t.tic();
 	CU_CHK(cudaMemcpy(d_mic, mic, xDim * yDim * sizeof(double), cudaMemcpyHostToDevice));
@@ -242,6 +243,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	}
 	t.toc("Time to plans and streams:\t");
 
+	tTotalCompute.tic();
 	// Iterate over all pieces
 	size_t step = (size_t) (((1 - overlap) * pieceDim));
 	for (size_t n = 0; n < divNumber; ++n) {
@@ -325,8 +327,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		}
 //TODO: gpu version check
 //		post<<<dimGrid, dimBlock, 0, streams[n]>>>(d_fft, define_out, d_pieceSmoother, pieceDim, y0, x0, yDim, a, b);
-//		*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
-		tPost.toc("Time tooo post:\t\t\t");
+		tPost.toc("Time to post:\t\t\t");
 	}
 
 	// Average
@@ -336,6 +337,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		psd[i] *= idiv_Number;
 	}
 	t.toc("Final reduction:\t\t");
+	tTotalCompute.toc("Total compute:\t\t\t");
 
 	// Free memory
 #ifdef USE_PINNED
@@ -347,6 +349,8 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaFree(d_fourier));
 	CU_CHK(cudaFree(d_pieceSmoother));
 	CU_CHK(cudaFree(d_mic));
+
+	tTotal.toc("Total:\t\t\t\t");
 }
 
 void cudaRunGpuEstimateCTFwithInterResults(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother,

@@ -64,32 +64,34 @@ public:
 	long getSecsRaw() const;
 	std::string getSecsFormatted() const;
 
-	void print(const string& str) {
+	void buildMessageString(const string& str, string& r) const {
+		string s;
+		std::stringstream ss;
+		ss << setw(9) << setfill('0') << nsec;
+		s = ss.str();
+		for (int i = s.size() - 3; i > 0; i -= 3) {
+			s.insert(s.begin() + i, ',');
+		}
+
+		std::stringstream rr;
+		rr << str << "Secs: " << sec << " Nsecs: " << setw(11) << s;
+
+		r = rr.str();
+	}
+
+	void print(const string& str) const {
 		if (active) {
-
 			string s;
-			std::stringstream ss;
-			ss << setw(9) << setfill('0') << nsec;
-			s = ss.str();
-			for (int i = s.size() - 3; i > 0; i -= 3) {
-				s.insert(s.begin() + i, ',');
-			}
-
-			std::cout << str << "Secs: " << sec << " Nsecs: " << setw(11) << s << std::endl;
+			buildMessageString(str, s);
+			std::cout << s << std::endl;
 		}
 	}
 };
 
 std::ostream& operator<<(std::ostream& out, const TicToc& f) {
 	string s;
-	std::stringstream ss;
-	ss << setw(9) << setfill('0') << f.nsec;
-	s = ss.str();
-	for (int i = s.size() - 3; i > 0; i -= 3) {
-		s.insert(s.begin() + i, ',');
-	}
-
-	return out << "Secs: " << f.sec << " Nsecs: " << setw(11) << s;
+	f.buildMessageString("", s);
+	return out << s;
 }
 
 inline void TicToc::tic() {
