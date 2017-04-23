@@ -28,7 +28,7 @@
 #include "cuda_gpu_estimate_ctf.h"
 
 #include <stdio.h>
-
+#include <algorithm>
 #include <complex>
 #include <cuda.h>
 #include <cufft.h>
@@ -195,6 +195,48 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		exit(EXIT_FAILURE);
 	}
 
+	// Host page-locked memory
+	cuDoubleComplex* h_fourier;
+	t.tic();
+#ifdef USE_PINNED
+	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
+#else
+	h_fourier = (cuDoubleComplex*) malloc(outSize);
+#endif
+	t.toc("Time to pinned malloc:\t\t");
+
+
+	double* avgSubpieces = new double[divNumber];
+	double* stdSubpieces = new double[divNumber];
+
+	std::fill_n(avgSubpieces, divNumber, 0.0);
+	std::fill_n(stdSubpieces, divNumber, 0.0);
+
+	size_t xTotalLim = divNumberX * (pieceDim * (1-overlap));
+	size_t yTotalLim = divNumberY * (pieceDim * (1-overlap));
+
+	int subPieceX = -1, subPieceY = -1;
+	for (size_t y; y < yTotalLim; y++) {
+		if (y % (pieceDim * (1-overlap)) == 0) {
+			// subPieceY = (subPieceY+1) % divNumberY
+			subPieceY = (subPieceY = (subPieceY + 1)) == divNumberY ? 0 : subPieceY;
+		}
+		for (size_t x; x < xTotalLim; x++) {
+			if (x % (pieceDim * (1-overlap)) == 0) {
+				subPieceX = (subPieceX = (subPieceX + 1)) == divNumberX ? 0 : subPieceX;
+			}
+
+		}
+	}
+
+
+
+
+
+
+
+
+
 	// Device memory
 	double* d_mic;
 	double* d_pieces;
@@ -206,16 +248,6 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaMalloc((void**)&d_fourier, outSize));
 	CU_CHK(cudaMalloc((void**)&d_pieceSmoother, pieceSize));
 	t.toc("Time to cuda malloc:\t\t");
-
-	// Host page-locked memory
-	cuDoubleComplex* h_fourier;
-	t.tic();
-#ifdef USE_PINNED
-	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
-#else
-	h_fourier = (cuDoubleComplex*) malloc(outSize);
-#endif
-	t.toc("Time to malloc:\t\t\t");
 
 	t.tic();
 	CU_CHK(cudaMemcpy(d_mic, mic, xDim * yDim * sizeof(double), cudaMemcpyHostToDevice));
