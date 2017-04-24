@@ -101,26 +101,26 @@ exit(EXIT_FAILURE); }
 
 using namespace cuda_gpu_estimate_ctf_err;
 
-void computePieceAvgStd(double* in, size_t pieceDim, size_t y0, size_t yEnd,
-		size_t x0, size_t xEnd, size_t yDim, double& avg, double& stddev) {
-	size_t len = pieceDim * pieceDim;
-	avg = 0.0;
-	stddev = 0.0;
-	double val;
-	for (size_t y = y0; y < yEnd; y++) {
-		for (size_t x = x0; x < xEnd; x++) {
-			//std::cerr << "x0 " << x0 << " y0 " << y0 << " xEnd " << xEnd << " yEnd " << yEnd << " x " << x << " y " << y << " p " << y * yDim + x << std::endl;
-			val = in[y * yDim + x];
-			avg += val;
-			stddev += val * val;
-		}
-	}
-	avg /= len;
-	stddev = stddev / len - avg * avg;
-	stddev *= len / (len - 1);
-	// Foreseeing numerical instabilities
-	stddev = std::sqrt(std::fabs(stddev));
-}
+//void computePieceAvgStd(double* in, size_t pieceDim, size_t y0, size_t yEnd,
+//		size_t x0, size_t xEnd, size_t yDim, double& avg, double& stddev) {
+//	size_t len = pieceDim * pieceDim;
+//	avg = 0.0;
+//	stddev = 0.0;
+//	double val;
+//	for (size_t y = y0; y < yEnd; y++) {
+//		for (size_t x = x0; x < xEnd; x++) {
+//			//std::cerr << "x0 " << x0 << " y0 " << y0 << " xEnd " << xEnd << " yEnd " << yEnd << " x " << x << " y " << y << " p " << y * yDim + x << std::endl;
+//			val = in[y * yDim + x];
+//			avg += val;
+//			stddev += val * val;
+//		}
+//	}
+//	avg /= len;
+//	stddev = stddev / len - avg * avg;
+//	stddev *= len / (len - 1);
+//	// Foreseeing numerical instabilities
+//	stddev = std::sqrt(std::fabs(stddev));
+//}
 
 const int K_SMOOTH_BLOCK_SIZE_X = 32;
 const int K_SMOOTH_BLOCK_SIZE_Y = 32;
@@ -133,7 +133,6 @@ __global__ void smooth(double* piece, double* mic, double* pieceSmoother, size_t
 	size_t micIt = (y0 + y) * yDim + x0 + x;
 	piece[it] = (mic[micIt] * a + b) * pieceSmoother[it];
 }
-
 
 __global__ void post(cuDoubleComplex* fft, cuDoubleComplex* out, size_t pieceDim, size_t n, size_t pieceFFTNumPixels) {
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -164,24 +163,110 @@ __global__ void post(cuDoubleComplex* fft, cuDoubleComplex* out, size_t pieceDim
 //	}
 }
 
-void getAvgStd(double* avgSubpieces, double* stdSubpieces, size_t blocki,
-		size_t blockj, size_t numSubpiecesX, size_t pieceDim, double& avg2,
-		double& std2) {
-	avg2 =    avgSubpieces[blocki       * numSubpiecesX + blockj]
-			+ avgSubpieces[blocki       * numSubpiecesX + blockj + 1]
-			+ avgSubpieces[(blocki + 1) * numSubpiecesX + blockj]
-			+ avgSubpieces[(blocki + 1) * numSubpiecesX + blockj + 1];
-	std2 =    stdSubpieces[blocki       * numSubpiecesX + blockj]
-			+ stdSubpieces[blocki       * numSubpiecesX + blockj + 1]
-			+ stdSubpieces[(blocki + 1) * numSubpiecesX + blockj]
-			+ stdSubpieces[(blocki + 1) * numSubpiecesX + blockj + 1];
-	size_t len = pieceDim * pieceDim;
-	avg2 /= len;
-	std2 = std2 / len - avg2 * avg2;
-	std2 *= len / (len - 1);
-	// Foreseeing numerical instabilities
-	std2 = std::sqrt(std::fabs(std2));
-}
+class AvgStd {
+
+	size_t pieceDim;
+	size_t numSubpiecesX;
+	size_t len;
+	double* avgSubpieces;
+	double* stdSubpieces;
+
+public:
+
+	AvgStd(double* mic, size_t pieceDim, size_t xDim, double overlap,
+			size_t divNumberX, size_t divNumberY, size_t skipBorders = 0) :
+			pieceDim(pieceDim) {
+
+		if (overlap != 0.5) {
+			std::cerr << "Error, only overlap of 0.5 allowed" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		bool isPow2 = true;
+		if ((pieceDim & (pieceDim - 1)) != 0) {
+			std::cerr << std::endl;
+			std::cerr << "**************************************************************" << std::endl;
+			std::cerr << "WARNING, pieceDim should be power of 2 for optimal performance" << std::endl;
+			std::cerr << "**************************************************************" << std::endl;
+			std::cerr << std::endl;
+			isPow2 = false;
+		}
+
+		size_t initPos = skipBorders * pieceDim;
+
+		len = pieceDim * pieceDim;
+
+		numSubpiecesX = divNumberX + 1;
+		size_t numSubpiecesY = divNumberY + 1;
+
+		avgSubpieces = new double[numSubpiecesX * numSubpiecesY];
+		stdSubpieces = new double[numSubpiecesX * numSubpiecesY];
+
+		std::fill_n(avgSubpieces, numSubpiecesX * numSubpiecesY, 0.0);
+		std::fill_n(stdSubpieces, numSubpiecesX * numSubpiecesY, 0.0);
+
+		size_t xTotalLim = numSubpiecesX * (pieceDim * (1-overlap));
+		size_t yTotalLim = numSubpiecesY * (pieceDim * (1-overlap));
+
+		double val;
+		int subPieceX = -1, subPieceY = -1;
+		size_t half = pieceDim / 2;
+		if (isPow2) {
+			half--;
+			for (size_t y = initPos; y < yTotalLim; y++) {
+				if ((y & half) == 0) {
+					subPieceY++;
+				}
+				subPieceX = -1;
+				for (size_t x = initPos; x < xTotalLim; x++) {
+					if ((x & half) == 0) {
+						subPieceX++;
+					}
+					val = mic[y * xDim + x];
+
+					avgSubpieces[subPieceY * numSubpiecesX + subPieceX] += val;
+					stdSubpieces[subPieceY * numSubpiecesX + subPieceX] += val * val;
+				}
+			}
+		} else {
+			for (size_t y = initPos; y < yTotalLim; y++) {
+				if ((y % half) == 0) {
+					subPieceY++;
+				}
+				subPieceX = -1;
+				for (size_t x = initPos; x < xTotalLim; x++) {
+					if ((x % half) == 0) {
+						subPieceX++;
+					}
+					val = mic[y * xDim + x];
+
+					avgSubpieces[subPieceY * numSubpiecesX + subPieceX] += val;
+					stdSubpieces[subPieceY * numSubpiecesX + subPieceX] += val * val;
+				}
+			}
+		}
+	}
+
+	~AvgStd() {
+		delete [] avgSubpieces;
+		delete [] stdSubpieces;
+	}
+
+	void getAvgStd(size_t blocki, size_t blockj, double& avg, 	double& stddev) {
+		avg =     avgSubpieces[blocki       * numSubpiecesX + blockj]
+				+ avgSubpieces[blocki       * numSubpiecesX + blockj + 1]
+				+ avgSubpieces[(blocki + 1) * numSubpiecesX + blockj]
+				+ avgSubpieces[(blocki + 1) * numSubpiecesX + blockj + 1];
+		stddev =  stdSubpieces[blocki       * numSubpiecesX + blockj]
+				+ stdSubpieces[blocki       * numSubpiecesX + blockj + 1]
+				+ stdSubpieces[(blocki + 1) * numSubpiecesX + blockj]
+				+ stdSubpieces[(blocki + 1) * numSubpiecesX + blockj + 1];
+		avg /= len;
+		stddev = stddev / len - avg * avg;
+		stddev *= len / (len - 1);
+		// Foreseeing numerical instabilities
+		stddev = std::sqrt(std::fabs(stddev));
+	}
+};
 
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
@@ -206,101 +291,30 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	size_t pieceFFTNumPixels  = pieceDim * (pieceDim / 2 + 1);
 	size_t pieceFFTSize       = pieceFFTNumPixels * sizeof(cufftDoubleComplex);
 
+	size_t step = (size_t) (((1 - overlap) * pieceDim));
+
 	if (divNumberX <= 0 || divNumberY <= 0) {
-		std::cerr << "Error, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
+		std::cerr << "ERROR, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
 				  << "with " << overlap << " overlap and " << skipBorders << " skip borders," << std::endl
 				  << "resulted in divNumberX=" << divNumberX << ", divNumberY=" << divNumberY << std::endl;
 		exit(EXIT_FAILURE);
 	}
+
+	// Create avgStd structure to
+	t.tic();
+	AvgStd avgStd(mic, pieceDim, xDim, overlap, divNumberX, divNumberY);
+	t.toc("Time to subpiece avg:\t\t");
 
 	// Host page-locked memory
 	cuDoubleComplex* h_fourier;
 	t.tic();
 #ifdef USE_PINNED
 	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
+	t.toc("Time to pinned malloc:\t\t");
 #else
 	h_fourier = (cuDoubleComplex*) malloc(outSize);
+	t.toc("Time to malloc:\t\t\t");
 #endif
-	t.toc("Time to pinned malloc:\t\t");
-
-
-	///////////////////////////////////////////////////////////////////////////
-	size_t numSubpiecesX = divNumberX + 1;
-	size_t numSubpiecesY = divNumberY + 1;
-
-	double* avgSubpieces = new double[numSubpiecesX * numSubpiecesY];
-	double* stdSubpieces = new double[numSubpiecesX * numSubpiecesY];
-
-	std::fill_n(avgSubpieces, numSubpiecesX * numSubpiecesY, 0.0);
-	std::fill_n(stdSubpieces, numSubpiecesX * numSubpiecesY, 0.0);
-
-	size_t xTotalLim = numSubpiecesX * (pieceDim * (1-overlap));
-	size_t yTotalLim = numSubpiecesY * (pieceDim * (1-overlap));
-
-	std::cout << "xTotalLim " << xTotalLim << std::endl;
-	std::cout << "yTotalLim " << yTotalLim << std::endl;
-
-	t.tic();
-	double val;
-	int subPieceX = -1, subPieceY = -1;
-	for (size_t y = 0; y < yTotalLim; y++) {
-		if ((y % 256) == 0) {
-			subPieceY++;
-		}
-		subPieceX = -1;
-		for (size_t x = 0; x < xTotalLim; x++) {
-			if ((x % 256) == 0) {
-				subPieceX++;
-			}
-			val = mic[y * xDim + x];
-
-			avgSubpieces[subPieceY * numSubpiecesX + subPieceX] += val;
-			stdSubpieces[subPieceY * numSubpiecesX + subPieceX] += val * val;
-		}
-	}
-	t.toc("Create subpieces");
-
-	///////////////////////////////////////////////////////////////////////////
-
-	// Test subpiece avg
-
-//	t.tic();
-//	for (size_t n = 0; n < divNumber; ++n) {
-//		// Extract piece
-//		size_t blocki = n / divNumberX;
-//		size_t blockj = n % divNumberX;
-//		size_t y0 = blocki * step + skipBorders * pieceDim;
-//		size_t x0 = blockj * step + skipBorders * pieceDim;
-//
-//		// Test if the full piece is inside the micrograph
-//		if (y0 + pieceDim > yDim)
-//			y0 = yDim - pieceDim;
-//
-//		if (x0 + pieceDim > xDim)
-//			x0 = xDim - pieceDim;
-//
-//		size_t yEnd = y0 + pieceDim;
-//		size_t xEnd = x0 + pieceDim;
-//
-//		// ComputeAvgStdev
-//		double avg = 0.0, stddev = 0.0;
-//		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
-//
-//		double avg2, std2;
-//
-//		getAvgStd(avgSubpieces, stdSubpieces, blocki, blockj, numSubpiecesX, pieceDim, avg2, std2);
-//		if ((avg - avg2)  > 10e-9 || (stddev - std2) > 10e-9) {
-//			std::cerr << "Blocki " << blocki << " Blockj " << blockj << std::endl
-//					  << "avg " << avg << " avg2 " << avg2 << std::endl
-//					  << "std " << stddev << " std2 " << std2 << std::endl;
-//		}
-//	}
-//	t.toc("org avg");
-//
-//
-//
-//	return;
-
 
 	// Device memory
 	double* d_mic;
@@ -342,7 +356,6 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 
 	tTotalCompute.tic();
 	// Iterate over all pieces
-	size_t step = (size_t) (((1 - overlap) * pieceDim));
 	for (size_t n = 0; n < divNumber; ++n) {
 		tAvg.tic();
 		// Extract piece
@@ -358,14 +371,9 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		if (x0 + pieceDim > xDim)
 			x0 = xDim - pieceDim;
 
-		size_t yEnd = y0 + pieceDim;
-		size_t xEnd = x0 + pieceDim;
-
 		// ComputeAvgStdev
 		double avg = 0.0, stddev = 0.0;
-		getAvgStd(avgSubpieces, stdSubpieces, blocki, blockj, numSubpiecesX, pieceDim, avg, stddev);
-		//computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
-		tAvg.toc("Time to avg std:\t\t");
+		avgStd.getAvgStd(blocki, blockj, avg, stddev);
 
 		// Normalize and smooth
 		double a, b;
@@ -375,6 +383,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 			a = 0.0;
 
 		b = avgF - a * avg;
+		tAvg.toc("Time to avg std:\t\t");
 
 		// Aux pointers
 		double* d_piecePtr            = d_pieces  + n * pieceNumPixels;
@@ -390,9 +399,7 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	}
 
 	// Expand + redux
-
 	size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
-	size_t YSIZE_FOURIER = pieceDim;
 	size_t XSIZE_REAL = pieceDim;
 	size_t YSIZE_REAL = pieceDim;
 
@@ -449,179 +456,4 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	CU_CHK(cudaFree(d_mic));
 
 	tTotal.toc("Total:\t\t\t\t");
-}
-
-void cudaRunGpuEstimateCTFwithInterResults(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother,
-			double* basePieces, double* normalizedSmoothPieces, std::complex<double>* piecesFFT, double* psd) {
-	TicToc t;
-
-	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
-	size_t divNumberX         = std::ceil((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
-	size_t divNumberY         = std::ceil((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
-	size_t divNumber          = divNumberX * divNumberY;
-
-	size_t inNumPixels        = divNumber * pieceDim * pieceDim;
-	size_t inSize             = inNumPixels * sizeof(double);
-
-	size_t outNumPixels       = divNumber * pieceDim * (pieceDim / 2 + 1);
-	size_t outSize            = outNumPixels * sizeof(cufftDoubleComplex);
-
-	size_t pieceNumPixels     = pieceDim * pieceDim;
-	size_t pieceSize          = pieceNumPixels * sizeof(double);
-
-	size_t pieceFFTNumPixels  = pieceDim * (pieceDim / 2 + 1);
-	size_t pieceFFTSize       = pieceFFTNumPixels * sizeof(cufftDoubleComplex);
-
-	if (divNumberX <= 0 || divNumberY <= 0) {
-		std::cerr << "Error, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
-				  << "with " << overlap << " overlap and " << skipBorders << " skip borders," << std::endl
-				  << "resulted in divNumberX=" << divNumberX << ", divNumberY=" << divNumberY << std::endl;
-		exit(EXIT_FAILURE);
-	}
-
-	// Host page-locked memory
-	double* in;
-	cuDoubleComplex* out;
-	CU_CHK(cudaMallocHost((void**) &in,  inSize));
-	CU_CHK(cudaMallocHost((void**) &out, outSize));
-
-	// Device memory
-	double* d_in;
-	cuDoubleComplex*d_out;
-	CU_CHK(cudaMalloc((void**)&d_in, inSize));
-	CU_CHK(cudaMalloc((void**)&d_out, outSize));
-
-	// CuFFT Callback
-//	cufftCallbackStoreZ h_storeCallbackPtr;
-//	CU_CHK(cudaMemcpyFromSymbol(&h_storeCallbackPtr, d_storeCallbackPtr, sizeof(h_storeCallbackPtr)));
-
-	// CU FFT PLAN
-	 cudaStream_t* streams = new cudaStream_t[divNumber];
-	 cufftHandle*    plans = new cufftHandle[divNumber];
-
-//	cufftHandle   plan;
-//	FFT_CHK(cufftPlan2d(&plan,pieceDim, pieceDim, CUFFT_D2Z));
-
-	// Iterate over all pieces
-	size_t step = (size_t) (((1 - overlap) * pieceDim));
-	for (size_t n = 0; n < divNumber; ++n) {
-		// Extract piece
-		size_t blocki = n / divNumberX;
-		size_t blockj = n % divNumberX;
-		size_t y0 = blocki * step + skipBorders * pieceDim;
-		size_t x0 = blockj * step + skipBorders * pieceDim;
-
-		// Test if the full piece is inside the micrograph
-		if (y0 + pieceDim > yDim)
-			y0 = yDim - pieceDim;
-
-		if (x0 + pieceDim > xDim)
-			x0 = xDim - pieceDim;
-
-		size_t yEnd = y0 + pieceDim;
-		size_t xEnd = x0 + pieceDim;
-
-		// ComputeAvgStdev
-		double avg = 0.0, stddev = 0.0;
-		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
-
-		// Normalize and smooth
-		double a, b;
-		if (stddev != 0.0)
-			a = stddevF / stddev;
-		else
-			a = 0.0;
-
-		b = avgF - a * avg;
-
-		size_t it = n * pieceNumPixels; // Host page-locked memory iterator
-		size_t smoothIt = 0;
-		for (size_t y = y0; y < yEnd; y++) {
-			for (size_t x = x0; x < xEnd; x++) {
-				//std::cerr << "x0 " << x0 << " y0 " << y0 << " xEnd " << xEnd << " yEnd " << yEnd << " x " << x << " y " << y << " p " << y * yDim + x << std::endl;
-				//std::cerr << "it " << it << " micIt " << y * step + x << " smoothIt " << smoothIt << std::endl;
-				in[it] = (mic[y * xDim + x] * a + b) * pieceSmoother[smoothIt];
-				////////////////////////////
-				// Copy piece
-				basePieces[it] = mic[y * xDim + x];
-				normalizedSmoothPieces[it] = (mic[y * xDim + x] * a + b) * pieceSmoother[smoothIt];
-
-				it++;
-				smoothIt++;
-			}
-		}
-
-		double* d_inPtr           = d_in  + n * pieceNumPixels;
-		cuDoubleComplex* d_outPtr = d_out + n * pieceFFTNumPixels;
-
-		double* h_inPtr           = in  + n * pieceNumPixels;
-		cuDoubleComplex* h_outPtr = out + n * pieceFFTNumPixels;
-
-		// Execution
-		CU_CHK (cudaStreamCreate(streams + n));
-		FFT_CHK(cufftPlan2d(plans + n,pieceDim, pieceDim, CUFFT_D2Z));
-		FFT_CHK(cufftSetStream(plans[n], streams[n]));
-
-//		FFT_CHK(cufftXtSetCallback(plans[n], (void **)&h_storeCallbackPtr, CUFFT_CB_ST_COMPLEX_DOUBLE, (void **)NULL));
-
-		CU_CHK(cudaMemcpyAsync(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice, streams[n]));
-		FFT_CHK(cufftExecD2Z(plans[n], d_inPtr, d_outPtr));
-		CU_CHK(cudaMemcpyAsync(h_outPtr, d_outPtr, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
-
-//		CU_CHK(cudaMemcpy(d_inPtr, h_inPtr, pieceSize, cudaMemcpyHostToDevice));
-//		FFT_CHK(cufftExecD2Z(plan, d_inPtr, d_outPtr));
-//		CU_CHK(cudaDeviceSynchronize());
-//		CU_CHK(cudaMemcpy(h_outPtr, d_outPtr, pieceFFTSize, cudaMemcpyDeviceToHost));
-	}
-
-	// Expand + redux
-	for (size_t n = 0; n < divNumber; ++n) {
-		CU_CHK(cudaStreamSynchronize(streams[n]));
-		CU_CHK(cudaStreamDestroy(streams[n]));
-
-		/////////////////////////////////////
-		// Copy fft
-		for (size_t i = 0; i < pieceFFTNumPixels; i++) {
-			piecesFFT[n * pieceFFTNumPixels + i] = std::complex<double>(out[n * pieceFFTNumPixels + i].x, out[n * pieceFFTNumPixels + i].y);
-		}
-
-		size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
-		size_t YSIZE_FOURIER = pieceDim;
-		size_t XSIZE_REAL = pieceDim;
-		size_t YSIZE_REAL = pieceDim;
-
-		cuDoubleComplex val;
-		double* ptrDest;
-		size_t iterator;
-		for (size_t i = 0; i < pieceDim; ++i) {
-			for (size_t j = 0; j < pieceDim; ++j) {
-				ptrDest = (double*) &psd[i * XSIZE_REAL + j];
-
-				if (j < XSIZE_FOURIER) {
-					iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
-				} else {
-					iterator  = n * pieceFFTNumPixels
-							+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
-									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
-				}
-
-				val = *(out + iterator);
-				double real = cuCreal(val);
-				double imag = cuCimag(val);
-				*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
-			}
-		}
-	}
-
-	// Average
-	double idiv_Number = 1.0 / (divNumber);
-	for(size_t i = 0; i < pieceDim * pieceDim; ++i)	{
-		psd[i] *= idiv_Number;
-	}
-
-	// Free memory
-	CU_CHK(cudaFreeHost(in));
-	CU_CHK(cudaFreeHost(out));
-	CU_CHK(cudaFree(d_in));
-	CU_CHK(cudaFree(d_out));
 }

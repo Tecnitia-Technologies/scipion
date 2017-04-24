@@ -163,6 +163,11 @@ void checkArray(T* cpu, T* gpu, size_t size, std::string name, bool printErr=fal
 }
 
 void ProgGpuEstimateCTF::run() {
+	if (pieceDim % 2 != 0) {
+		std::cerr << "ERROR, pieceDim must be even" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
 	// Input
 	Image<real_t> mic;
 	mic.read(fnMic);
@@ -171,7 +176,6 @@ void ProgGpuEstimateCTF::run() {
 	Image<real_t> psd;
 	psd().initZeros(pieceDim, pieceDim);
 	real_t *psdPtr = psd().data;
-
 
 	// Compute the number of divisions --------------------------------------
 	size_t Xdim, Ydim, Zdim, Ndim;
@@ -187,70 +191,5 @@ void ProgGpuEstimateCTF::run() {
     // CU FFT
 	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr);
 
-	// Intermediate results
-//    double* basePieces 				= new double[pieceDim * pieceDim * div_Number];
-//    double* normalizedSmoothPieces 	= new double[pieceDim * pieceDim * div_Number];
-//    std::complex<double>* piecesFFT = new std::complex<double>[pieceDim * pieceDim * div_Number];
-	//cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, basePieces, normalizedSmoothPieces, piecesFFT, psdPtr);
-
-//	////////////////////////////////////////////////////////////////////////////////////////
-//	// CPU COMPUTE
-//
-//
-//	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
-//
-//	size_t inNumPixels   = div_Number * pieceDim * pieceDim;
-//	size_t inSize        = inNumPixels * sizeof(double);
-//
-//	size_t outNumPixels  = pieceDim * pieceDim;
-//	size_t outSize       = outNumPixels * sizeof(double);
-//
-//	size_t pieceIterator, pieceFFTIterator;
-// 	for(int N = 1; N <= div_Number; N++) {
-//		pieceIterator    = (N-1) * pieceDim * pieceDim;
-//		pieceFFTIterator = (N-1) * pieceDim * (pieceDim / 2 + 1);
-// 		// Extract piece
-//		extractPiece(mic.data, N, div_NumberX, Ydim, Xdim, piece);
-//
-//		///////////////////////////////
-//		checkArray(piece.data, basePieces + pieceIterator, pieceDim * pieceDim, "base");
-//
-//		// Normalize piece
-//		piece.statisticsAdjust(0, 1);
-//		STARTINGX(piece) = STARTINGY(piece) = 0;
-//		piece *= pieceSmoother;
-//
-//		///////////////////////////////
-//		checkArray(piece.data, normalizedSmoothPieces + pieceIterator, pieceDim * pieceDim, "normalize");
-//
-//		// Test fourier
-//		Image<real_t> fourierMagCPU;
-//		Image<real_t> fourierMagGPU;
-//
-//		fourierMagCPU().initZeros(pieceDim, pieceDim);
-//		fourierMagGPU().initZeros(pieceDim, pieceDim);
-//
-//		FourierTransformer transformer;
-//
-//		// CPU FFT
-//		transformer.setReal(piece);
-//		transformer.Transform(-1); // FFTW_FORWARD
-//		complex_t *fourierCPUptr = transformer.fFourier.data;
-//
-//		///////////////////////////////
-//		checkArray(fourierCPUptr, piecesFFT + pieceFFTIterator, pieceDim * (pieceDim / 2 + 1), "fft");
-// 	}
-
 	psd.write(fnOut);
-
-
-	// Validation test
-//
-//	Image<real_t> validationPsd;
-//	validationPsd.read("validation.psd");
-//	real_t* validationPtr = validationPsd.data.data;
-//
-//	checkArray(validationPtr, psdPtr, pieceDim * pieceDim, "PSD");
-
-
 }
