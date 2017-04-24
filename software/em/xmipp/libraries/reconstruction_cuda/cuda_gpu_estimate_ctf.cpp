@@ -164,16 +164,34 @@ __global__ void post(cuDoubleComplex* fft, cuDoubleComplex* out, size_t pieceDim
 //	}
 }
 
+void getAvgStd(double* avgSubpieces, double* stdSubpieces, size_t blocki,
+		size_t blockj, size_t numSubpiecesX, size_t pieceDim, double& avg2,
+		double& std2) {
+	avg2 =    avgSubpieces[blocki       * numSubpiecesX + blockj]
+			+ avgSubpieces[blocki       * numSubpiecesX + blockj + 1]
+			+ avgSubpieces[(blocki + 1) * numSubpiecesX + blockj]
+			+ avgSubpieces[(blocki + 1) * numSubpiecesX + blockj + 1];
+	std2 =    stdSubpieces[blocki       * numSubpiecesX + blockj]
+			+ stdSubpieces[blocki       * numSubpiecesX + blockj + 1]
+			+ stdSubpieces[(blocki + 1) * numSubpiecesX + blockj]
+			+ stdSubpieces[(blocki + 1) * numSubpiecesX + blockj + 1];
+	size_t len = pieceDim * pieceDim;
+	avg2 /= len;
+	std2 = std2 / len - avg2 * avg2;
+	std2 *= len / (len - 1);
+	// Foreseeing numerical instabilities
+	std2 = std::sqrt(std::fabs(std2));
+}
+
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
-
 void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
 	TicToc t(true), tAvg(false), tPost(false), tTotal(true), tTotalCompute(true);
 
 	tTotal.tic();
 	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
-	size_t divNumberX         = std::ceil((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
-	size_t divNumberY         = std::ceil((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
+	size_t divNumberX         = std::floor((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
+	size_t divNumberY         = std::floor((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
 	size_t divNumber          = divNumberX * divNumberY;
 
 	size_t inNumPixels        = divNumber * pieceDim * pieceDim;
@@ -206,35 +224,82 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	t.toc("Time to pinned malloc:\t\t");
 
 
-	double* avgSubpieces = new double[divNumber];
-	double* stdSubpieces = new double[divNumber];
+	///////////////////////////////////////////////////////////////////////////
+	size_t numSubpiecesX = divNumberX + 1;
+	size_t numSubpiecesY = divNumberY + 1;
 
-	std::fill_n(avgSubpieces, divNumber, 0.0);
-	std::fill_n(stdSubpieces, divNumber, 0.0);
+	double* avgSubpieces = new double[numSubpiecesX * numSubpiecesY];
+	double* stdSubpieces = new double[numSubpiecesX * numSubpiecesY];
 
-	size_t xTotalLim = divNumberX * (pieceDim * (1-overlap));
-	size_t yTotalLim = divNumberY * (pieceDim * (1-overlap));
+	std::fill_n(avgSubpieces, numSubpiecesX * numSubpiecesY, 0.0);
+	std::fill_n(stdSubpieces, numSubpiecesX * numSubpiecesY, 0.0);
 
+	size_t xTotalLim = numSubpiecesX * (pieceDim * (1-overlap));
+	size_t yTotalLim = numSubpiecesY * (pieceDim * (1-overlap));
+
+	std::cout << "xTotalLim " << xTotalLim << std::endl;
+	std::cout << "yTotalLim " << yTotalLim << std::endl;
+
+	t.tic();
+	double val;
 	int subPieceX = -1, subPieceY = -1;
-	for (size_t y; y < yTotalLim; y++) {
-		if (y % (pieceDim * (1-overlap)) == 0) {
-			// subPieceY = (subPieceY+1) % divNumberY
-			subPieceY = (subPieceY = (subPieceY + 1)) == divNumberY ? 0 : subPieceY;
+	for (size_t y = 0; y < yTotalLim; y++) {
+		if ((y % 256) == 0) {
+			subPieceY++;
 		}
-		for (size_t x; x < xTotalLim; x++) {
-			if (x % (pieceDim * (1-overlap)) == 0) {
-				subPieceX = (subPieceX = (subPieceX + 1)) == divNumberX ? 0 : subPieceX;
+		subPieceX = -1;
+		for (size_t x = 0; x < xTotalLim; x++) {
+			if ((x % 256) == 0) {
+				subPieceX++;
 			}
+			val = mic[y * xDim + x];
 
+			avgSubpieces[subPieceY * numSubpiecesX + subPieceX] += val;
+			stdSubpieces[subPieceY * numSubpiecesX + subPieceX] += val * val;
 		}
 	}
+	t.toc("Create subpieces");
 
+	///////////////////////////////////////////////////////////////////////////
 
+	// Test subpiece avg
 
-
-
-
-
+//	t.tic();
+//	for (size_t n = 0; n < divNumber; ++n) {
+//		// Extract piece
+//		size_t blocki = n / divNumberX;
+//		size_t blockj = n % divNumberX;
+//		size_t y0 = blocki * step + skipBorders * pieceDim;
+//		size_t x0 = blockj * step + skipBorders * pieceDim;
+//
+//		// Test if the full piece is inside the micrograph
+//		if (y0 + pieceDim > yDim)
+//			y0 = yDim - pieceDim;
+//
+//		if (x0 + pieceDim > xDim)
+//			x0 = xDim - pieceDim;
+//
+//		size_t yEnd = y0 + pieceDim;
+//		size_t xEnd = x0 + pieceDim;
+//
+//		// ComputeAvgStdev
+//		double avg = 0.0, stddev = 0.0;
+//		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
+//
+//		double avg2, std2;
+//
+//		getAvgStd(avgSubpieces, stdSubpieces, blocki, blockj, numSubpiecesX, pieceDim, avg2, std2);
+//		if ((avg - avg2)  > 10e-9 || (stddev - std2) > 10e-9) {
+//			std::cerr << "Blocki " << blocki << " Blockj " << blockj << std::endl
+//					  << "avg " << avg << " avg2 " << avg2 << std::endl
+//					  << "std " << stddev << " std2 " << std2 << std::endl;
+//		}
+//	}
+//	t.toc("org avg");
+//
+//
+//
+//	return;
 
 
 	// Device memory
@@ -298,7 +363,8 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 
 		// ComputeAvgStdev
 		double avg = 0.0, stddev = 0.0;
-		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
+		getAvgStd(avgSubpieces, stdSubpieces, blocki, blockj, numSubpiecesX, pieceDim, avg, stddev);
+		//computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
 		tAvg.toc("Time to avg std:\t\t");
 
 		// Normalize and smooth
