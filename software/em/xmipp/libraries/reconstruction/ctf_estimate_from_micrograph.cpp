@@ -408,8 +408,8 @@ void ProgCTFEstimateFromMicrograph::run()
 		}
 	}
 
-	orgPsdAvg.write("psdOrgAveraged.psd");
-	testPsdAvg.write("psdTestAveraged.psd");
+	orgPsdAvg.write("cpuOrg_" + fn_root);
+	testPsdAvg.write("cpuImp_" + fn_root);
 }
 
 /* Fast estimate of PSD --------------------------------------------------- */
