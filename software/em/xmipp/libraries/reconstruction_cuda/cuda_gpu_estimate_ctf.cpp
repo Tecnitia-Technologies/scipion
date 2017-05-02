@@ -138,33 +138,56 @@ __global__ void smooth(double* piece, double* mic, double* pieceSmoother, size_t
 	piece[it] = (mic[micIt] * a + b) * pieceSmoother[it];
 }
 
-__global__ void post(cuDoubleComplex* fft, cuDoubleComplex* out, size_t pieceDim, size_t n, size_t pieceFFTNumPixels) {
-	int x = blockIdx.x * blockDim.x + threadIdx.x;
-	int fila = ((-2)*pieceDim + 1 + sqrtf(((2 * pieceDim - 1) * (2 * pieceDim - 1)) - 8 * x)) * (-0.5);
-
-	int triangular = ((fila)*(fila + 1))/2;
-
-	cuDoubleComplex r = fft[x];
-	out[x + triangular] = r;
-	out[(pieceDim*pieceDim)-1-x-triangular] = r;
-
-//	for (size_t i = 0; i < pieceDim; ++i) {
-//		for (size_t j = 0; j < pieceDim; ++j) {
-//			ptrDest = (double*) &psd[i * XSIZE_REAL + j];
+//__global__ void post(cuDoubleComplex* fft, cuDoubleComplex* out, size_t pieceDim, size_t n, size_t pieceFFTNumPixels) {
+//	int x = blockIdx.x * blockDim.x + threadIdx.x;
+//	int fila = ((-2)*pieceDim + 1 + sqrtf(((2 * pieceDim - 1) * (2 * pieceDim - 1)) - 8 * x)) * (-0.5);
 //
-//			if (j < XSIZE_FOURIER) {
-//				iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
-//			} else {
-//				iterator  = n * pieceFFTNumPixels
-//						+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
-//								* XSIZE_FOURIER + ((XSIZE_REAL) - j);
-//			}
-//			val = *(h_fourier + iterator);
-//			double real = cuCreal(val);
-//			double imag = cuCimag(val);
-//			*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
-//		}
-//	}
+//	int triangular = ((fila)*(fila + 1))/2;
+//
+//	cuDoubleComplex r = fft[x];
+//	out[x + triangular] = r;
+//	out[(pieceDim*pieceDim)-1-x-triangular] = r;
+//
+////	for (size_t i = 0; i < pieceDim; ++i) {
+////		for (size_t j = 0; j < pieceDim; ++j) {
+////			ptrDest = (double*) &psd[i * XSIZE_REAL + j];
+////
+////			if (j < XSIZE_FOURIER) {
+////				iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
+////			} else {
+////				iterator  = n * pieceFFTNumPixels
+////						+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
+////								* XSIZE_FOURIER + ((XSIZE_REAL) - j);
+////			}
+////			val = *(h_fourier + iterator);
+////			double real = cuCreal(val);
+////			double imag = cuCimag(val);
+////			*ptrDest += (real * real + imag * imag) * pieceDim * pieceDim;
+////		}
+////	}
+//}
+
+__global__ void naivePost(cuDoubleComplex* fft, double* out, size_t XSIZE_FOURIER, size_t XSIZE_REAL, size_t YSIZE_REAL, double iSize) {
+	int j = blockIdx.x * blockDim.x + threadIdx.x;
+	int i = blockIdx.y * blockDim.y + threadIdx.y;
+
+	cuDoubleComplex val;
+	double* ptrDest;
+	size_t iterator;
+	ptrDest = out + i * XSIZE_REAL + j;
+
+	if (j < XSIZE_FOURIER) {
+		iterator  = i * XSIZE_FOURIER + j;
+	} else {
+		// Using { x & (n-1)} as {x % (n)}, only works if n is POW of 2
+		// TODO error if n not pow of 2, or use different kernel
+		iterator  = (((YSIZE_REAL) - i) & (YSIZE_REAL-1))
+						* XSIZE_FOURIER + ((XSIZE_REAL) - j);
+	}
+	val = fft[iterator];
+	double real = cuCreal(val) * iSize;
+	double imag = cuCimag(val) * iSize;
+	*ptrDest = (real * real + imag * imag);
 }
 
 class AvgStd {
@@ -274,8 +297,8 @@ public:
 
 // Piece normalization values
 const double avgF = 0.0, stddevF = 1.0;
-void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd) {
-	TicToc t(true), tAvg(false), tPost(false), tTotal(true), tTotalCompute(true);
+void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd, bool verbose) {
+	TicToc t(true && verbose), tAvg(false && verbose), tPost(true && verbose), tTotal(true && verbose), tTotalCompute(true && verbose);
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -301,7 +324,26 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	size_t pieceFFTNumPixels  = pieceDim * (pieceDim / 2 + 1);
 	size_t pieceFFTSize       = pieceFFTNumPixels * sizeof(cufftDoubleComplex);
 
+	size_t XSIZE_FOURIER      = (pieceDim / 2 + 1);
+	size_t XSIZE_REAL         = pieceDim;
+	size_t YSIZE_REAL         = pieceDim;
+	double iSize              = 1.0 / (pieceDim * pieceDim);
+
 	size_t step = (size_t) (((1 - overlap) * pieceDim));
+
+	if (verbose) {
+		std::cout << std::endl;
+		std::cout << "xDim: " << xDim << std::endl
+				  << "yDim: " << yDim << std::endl
+				  << std::endl
+				  << "divNumberX: " << divNumberX << std::endl
+				  << "divNumberY: " << divNumberY << std::endl
+				  << "divNumber : " << divNumber  << std::endl
+				  << std::endl
+				  << "pieceDim: " << pieceDim << std::endl
+				  << "overlap:  " << overlap  << std::endl;
+		std::cout << std::endl;
+	}
 
 	if (divNumberX <= 0 || divNumberY <= 0) {
 		std::cerr << "ERROR, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
@@ -322,15 +364,12 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	// Host page-locked memory
-	cuDoubleComplex* h_fourier;
+//	cuDoubleComplex* h_fourier;
+	double* h_r;
 	t.tic();
-#ifdef USE_PINNED
-	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
+//	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
+	CU_CHK(cudaMallocHost((void**) &h_r, inSize));
 	t.toc("Time to pinned malloc:\t\t");
-#else
-	h_fourier = (cuDoubleComplex*) malloc(outSize);
-	t.toc("Time to malloc:\t\t\t");
-#endif
 
 	// Device memory
 	double* d_mic;
@@ -355,14 +394,14 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	// Kernel config
-	dim3 dimBlock(K_SMOOTH_BLOCK_SIZE_X, K_SMOOTH_BLOCK_SIZE_Y);
+	// Smooth Kernel config
+	dim3 dimBlockSmooth(K_SMOOTH_BLOCK_SIZE_X, K_SMOOTH_BLOCK_SIZE_Y);
 	// Calculate number of grids needed for dimBlock,
 	// wich is pieceDim % block == 0 ? pieceDim / block : pieceDim / block + 1
 	// in a hacky way
 	int k_grid_size_x = (pieceDim + K_SMOOTH_BLOCK_SIZE_X - 1) / K_SMOOTH_BLOCK_SIZE_X;
 	int k_grid_size_y = (pieceDim + K_SMOOTH_BLOCK_SIZE_Y - 1) / K_SMOOTH_BLOCK_SIZE_Y;
-	dim3 dimGrid(k_grid_size_x, k_grid_size_y);
+	dim3 dimGridSmooth(k_grid_size_x, k_grid_size_y);
 
 	// CU FFT PLAN
 	cudaStream_t* streams = new cudaStream_t[divNumber];
@@ -426,15 +465,23 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 		// Aux pointers
 		double* d_piecePtr            = d_pieces  + n * pieceNumPixels;
 		cuDoubleComplex* d_fourierPtr = d_fourier + n * pieceFFTNumPixels;
-		cuDoubleComplex* h_fourierPtr = h_fourier + n * pieceFFTNumPixels;
+//		cuDoubleComplex* h_fourierPtr = h_fourier + n * pieceFFTNumPixels;
+		double* h_rPtr                = h_r       + n * pieceNumPixels;
 
 		// Normalize and smooth
-		smooth<<<dimGrid, dimBlock, 0, streams[n]>>>(d_piecePtr, d_mic, d_pieceSmoother, pieceDim, y0, x0, yDim, a, b);
+		smooth<<<dimGridSmooth, dimBlockSmooth, 0, streams[n]>>>(d_piecePtr, d_mic, d_pieceSmoother, pieceDim, y0, x0, yDim, a, b);
 		CU_CHK(cudaPeekAtLastError()); // test kernel was created correctly
 
 		// FFT Execution
 		FFT_CHK(cufftExecD2Z(plans[n], d_piecePtr, d_fourierPtr));
-		CU_CHK(cudaMemcpyAsync(h_fourierPtr, d_fourierPtr, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
+
+		// Post process (expansion)
+		naivePost<<<dimGridSmooth, dimBlockSmooth, 0, streams[n]>>>(d_fourierPtr, d_piecePtr, XSIZE_FOURIER, XSIZE_REAL, YSIZE_REAL, iSize);
+		CU_CHK(cudaPeekAtLastError()); // test kernel was created correctly
+
+		// Read result
+		//		CU_CHK(cudaMemcpyAsync(h_fourierPtr, d_fourierPtr, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
+		CU_CHK(cudaMemcpyAsync(h_rPtr, d_piecePtr, pieceSize, cudaMemcpyDeviceToHost, streams[n]));
 	}
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -444,41 +491,53 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	// Expand + redux
-	size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
-	size_t XSIZE_REAL = pieceDim;
-	size_t YSIZE_REAL = pieceDim;
-
-	double iSize = 1.0 / (pieceDim * pieceDim);;
-
+//	size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
+//	size_t XSIZE_REAL = pieceDim;
+//	size_t YSIZE_REAL = pieceDim;
+//
+//	double iSize = 1.0 / (pieceDim * pieceDim);;
+//
+//	for (size_t n = 0; n < divNumber; ++n) {
+//		// Wait for fft completed for this piece
+//		CU_CHK(cudaStreamSynchronize(streams[n]));
+//		CU_CHK(cudaStreamDestroy(streams[n]));
+//		FFT_CHK(cufftDestroy(plans[n]));
+//
+//		tPost.tic();
+//		cuDoubleComplex val;
+//		double* ptrDest;
+//		size_t iterator;
+//		for (size_t i = 0; i < pieceDim; ++i) {
+//			for (size_t j = 0; j < pieceDim; ++j) {
+//				ptrDest = (double*) &psd[i * XSIZE_REAL + j];
+//
+//				if (j < XSIZE_FOURIER) {
+//					iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
+//				} else {
+//					iterator  = n * pieceFFTNumPixels
+//							+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
+//									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
+//				}
+//				val = *(h_fourier + iterator);
+//				double real = cuCreal(val) * iSize;
+//				double imag = cuCimag(val) * iSize;
+//				*ptrDest += (real * real + imag * imag);
+//			}
+//		}
+//		tPost.toc("Time to post:\t\t\t");
+//	}
+	tPost.tic();
 	for (size_t n = 0; n < divNumber; ++n) {
 		// Wait for fft completed for this piece
 		CU_CHK(cudaStreamSynchronize(streams[n]));
-		CU_CHK(cudaStreamDestroy(streams[n]));
-		FFT_CHK(cufftDestroy(plans[n]));
 
-		tPost.tic();
-		cuDoubleComplex val;
-		double* ptrDest;
-		size_t iterator;
 		for (size_t i = 0; i < pieceDim; ++i) {
 			for (size_t j = 0; j < pieceDim; ++j) {
-				ptrDest = (double*) &psd[i * XSIZE_REAL + j];
-
-				if (j < XSIZE_FOURIER) {
-					iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
-				} else {
-					iterator  = n * pieceFFTNumPixels
-							+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
-									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
-				}
-				val = *(h_fourier + iterator);
-				double real = cuCreal(val) * iSize;
-				double imag = cuCimag(val) * iSize;
-				*ptrDest += (real * real + imag * imag);
+				psd[i * pieceDim + j] += h_r[n * pieceNumPixels + i * pieceDim + j];
 			}
 		}
-		tPost.toc("Time to post:\t\t\t");
 	}
+	tPost.toc("Time to post:\t\t\t");
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -495,16 +554,21 @@ void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap
 	t.toc("Final reduction:\t\t");
 	tTotalCompute.toc("Total compute:\t\t\t");
 
+
+	t.tic();
+	for (size_t n = 0; n < divNumber; ++n) {
+		CU_CHK(cudaStreamDestroy(streams[n]));
+		FFT_CHK(cufftDestroy(plans[n]));
+	}
+	t.toc("Destroy:\t\t\t");
+
 	// Free memory
-#ifdef USE_PINNED
-	CU_CHK(cudaFreeHost(h_fourier));
-#else
-	free(h_fourier);
-#endif
+//	CU_CHK(cudaFreeHost(h_fourier));
+	CU_CHK(cudaFreeHost(h_r));
 	CU_CHK(cudaFree(d_pieces));
 	CU_CHK(cudaFree(d_fourier));
 	CU_CHK(cudaFree(d_pieceSmoother));
 	CU_CHK(cudaFree(d_mic));
 
-	tTotal.toc("Total:\t\t\t\t");
+	tTotal.toc("Total\t\t\t\t");
 }
