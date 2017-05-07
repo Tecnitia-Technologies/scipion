@@ -31,5 +31,111 @@
 
 #define USE_PINNED
 
-void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd);
+#include <cuda.h>
+#include <cufft.h>
+
+#include <cufftXt.h>
+
+class CudaPsdCalculator {
+
+	/* Psd calculator configuration ********************************************************************************************/
+	size_t xDim;
+	size_t yDim;
+
+	double overlap;
+	size_t pieceDim;
+
+	int skipBorders;
+	bool verbose;
+
+	bool firstExecution;
+
+	/* Size variables **********************************************************************************************************/
+	size_t divNumberX;
+	size_t divNumberY;
+	size_t divNumber;
+
+	size_t inNumPixels;
+	size_t inSize;
+
+	size_t outNumPixels;
+	size_t outSize;
+
+	size_t pieceNumPixels;
+	size_t pieceSize;
+
+	size_t pieceFFTNumPixels;
+	size_t pieceFFTSize;
+
+	size_t XSIZE_FOURIER;
+	size_t XSIZE_REAL;
+	size_t YSIZE_REAL;
+	double iSize;
+
+	size_t step;
+
+	/* GPU and host memory addresses *******************************************************************************************/
+	// Host page-locked memory
+	double* h_pieces;
+	double* pieceSmoother;
+
+	// Device memory
+	double* d_mic;
+	double* d_pieces;
+	double* d_pieceSmoother;
+	cuDoubleComplex* d_fourier;
+
+
+	/* GPU kernel sizes ********************************************************************************************************/
+	dim3 dimBlockSmooth;
+	dim3 dimGridSmooth;
+	cudaStream_t* streams;
+	cufftHandle* plans;
+
+
+
+	/* GPU kernel sizes ********************************************************************************************************/
+
+	// Lazy init of variales and memory allocation
+	void firstExecutionConfiguration(size_t xDim, size_t yDim);
+
+	void createPieceSmoother();
+
+public:
+
+	CudaPsdCalculator(double overlap, size_t pieceDim, int skipBorders, bool verbose, double* pieceSmoother) :
+		overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), pieceSmoother(pieceSmoother), firstExecution(true) {
+
+	}
+
+	virtual ~CudaPsdCalculator() {
+		for (size_t n = 0; n < divNumber; ++n) {
+			cudaStreamDestroy(streams[n]);
+			cufftDestroy(plans[n]);
+		}
+
+		delete [] streams;
+		delete [] plans;
+
+		// Free memory
+		cudaFreeHost(h_pieces);
+		cudaFree(d_pieces);
+		cudaFree(d_fourier);
+		cudaFree(d_pieceSmoother);
+		cudaFree(d_mic);
+	}
+
+	void calculatePsd(double* mic, size_t xDim, size_t yDim, double* psd);
+
+//	void calculatePsd(const Image<double>& mic, Image<double>& psd) {
+//		calculatePsd(mic.data.data, mic.data.xdim, mic.data.ydim, psd.data.data);
+//	}
+//
+//	void calculatePsd(const MultidimArray<double>& mic, MultidimArray<double>& psd) {
+//		calculatePsd(mic.data, mic.xdim, mic.data.ydim, psd.data);
+//	}
+
+};
+
+//void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd, bool verbose);
 #endif

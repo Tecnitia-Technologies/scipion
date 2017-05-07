@@ -71,14 +71,21 @@ void ProgGpuEstimateCTF::defineParams()
 template <typename T>
 void constructPieceSmoother(const MultidimArray<T> &piece,
 		MultidimArray<T> &pieceSmoother) {
+    TicToc t(false);
 	// Attenuate borders to avoid discontinuities
 	pieceSmoother.resizeNoCopy(piece);
+    t.tic();
 	pieceSmoother.initConstant(1);
+    t.toc("initConstant piece smoother\t");
 	pieceSmoother.setXmippOrigin();
+
 	T iHalfsize = 2.0 / YSIZE(pieceSmoother);
 	const T alpha = 0.025;
 	const T alpha1 = 1 - alpha;
 	const T ialpha = 1.0 / alpha;
+
+	t.tic();
+
 	for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother); i++) {
 		T iFraction = fabs(i * iHalfsize);
 		if (iFraction > alpha1) {
@@ -87,7 +94,9 @@ void constructPieceSmoother(const MultidimArray<T> &piece,
 				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
 		}
 	}
+    t.toc("for1 piece smoother\t\t");
 
+    t.tic();
 	for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother); j++) {
 		T jFraction = fabs(j * iHalfsize);
 		if (jFraction > alpha1) {
@@ -96,6 +105,7 @@ void constructPieceSmoother(const MultidimArray<T> &piece,
 				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
 		}
 	}
+    t.toc("for2 piece smoother\t\t");
 
 	STARTINGX(pieceSmoother) = STARTINGY(pieceSmoother) = 0;
 }
@@ -167,29 +177,49 @@ void ProgGpuEstimateCTF::run() {
 		std::cerr << "ERROR, pieceDim must be even" << std::endl;
 		exit(EXIT_FAILURE);
 	}
+	TicToc t, total;
 
+	total.tic();
 	// Input
 	Image<real_t> mic;
 	mic.read(fnMic);
 	real_t *micPtr = mic().data;
+
 	// Result
 	Image<real_t> psd;
 	psd().initZeros(pieceDim, pieceDim);
 	real_t *psdPtr = psd().data;
 
+	Image<real_t> psd2;
+	psd2().initZeros(pieceDim, pieceDim);
+	real_t *psdPtr2 = psd2().data;
+
 	// Compute the number of divisions --------------------------------------
 	size_t Xdim, Ydim, Zdim, Ndim;
-	int div_Number;
-	int div_NumberX, div_NumberY;
- 	computeDivisions(mic, div_Number, div_NumberX, div_NumberY, Xdim, Ydim, Zdim, Ndim);
+//	int div_Number;
+//	int div_NumberX, div_NumberY;
+ 	//computeDivisions(mic, div_Number, div_NumberX, div_NumberY, Xdim, Ydim, Zdim, Ndim);
+	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
 
  	// Attenuate borders to avoid discontinuities
 	MultidimArray<real_t> piece(pieceDim, pieceDim);
+    t.tic();
     MultidimArray<real_t> pieceSmoother;
     constructPieceSmoother(piece, pieceSmoother);
+    t.toc("piece smoother\t\t\t");
 
     // CU FFT
-	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr);
+//	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr, verbose);
 
-	psd.write(fnOut);
+	CudaPsdCalculator psdCalc(overlap, pieceDim, 0, verbose, pieceSmoother.data);
+
+	for (int var = 0; var < 10; ++var) {
+		psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr);
+		std::cout << std::endl;
+	}
+	psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr2);
+	std::cout << std::endl;
+
+	total.toc("Total\t\t\t\t");
+	psd2.write(fnOut);
 }
