@@ -288,10 +288,10 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 
 	this->chunkNum			 = divNumber % chunkSize == 0 ? divNumber / chunkSize : divNumber / chunkSize + 1;
 
-	this->inNumPixels        = divNumber * pieceDim * pieceDim;
+	this->inNumPixels        = chunkNum * pieceDim * pieceDim;
 	this->inSize             = inNumPixels * sizeof(double);
 
-	this->outNumPixels       = divNumber * pieceDim * (pieceDim / 2 + 1);
+	this->outNumPixels       = chunkNum * pieceDim * (pieceDim / 2 + 1);
 	this->outSize            = outNumPixels * sizeof(cufftDoubleComplex);
 
 	this->pieceNumPixels     = pieceDim * pieceDim;
@@ -315,6 +315,9 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 				  << "divNumberX: " << divNumberX << std::endl
 				  << "divNumberY: " << divNumberY << std::endl
 				  << "divNumber : " << divNumber  << std::endl
+				  << std::endl
+				  << "chunkSize : " << chunkSize << std::endl
+				  << "chunkNum  : " << chunkNum  << std::endl
 				  << std::endl
 				  << "pieceDim: " << pieceDim << std::endl
 				  << "overlap:  " << overlap  << std::endl;
@@ -367,11 +370,11 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 	dimGridSmooth = dim3(k_grid_size_x, k_grid_size_y);
 
 	// CU FFT PLAN
-	streams = new cudaStream_t[divNumber];
-	plans   = new cufftHandle[divNumber];
+	streams = new cudaStream_t[chunkSize];
+	plans   = new cufftHandle[chunkSize];
 
 	t.tic();
-	for (size_t n = 0; n < divNumber; ++n) {
+	for (size_t n = 0; n < chunkSize; ++n) {
 		CU_CHK(cudaStreamCreate(streams + n));
 		FFT_CHK(cufftPlan2d(plans + n, pieceDim, pieceDim, CUFFT_D2Z));
 		FFT_CHK(cufftSetStream(plans[n], streams[n]));
@@ -383,8 +386,6 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
 }
 
 // TODO Gpu?
@@ -523,9 +524,9 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 			// Aux pointers
-			double* d_piecePtr            = d_pieces  + subpieceNumAbsolute * pieceNumPixels;
-			cuDoubleComplex* d_fourierPtr = d_fourier + subpieceNumChunk    * pieceFFTNumPixels;
-			double* h_rPtr                = h_pieces  + subpieceNumChunk    * pieceNumPixels;
+			double* d_piecePtr            = d_pieces  + subpieceNumChunk * pieceNumPixels;
+			cuDoubleComplex* d_fourierPtr = d_fourier + subpieceNumChunk * pieceFFTNumPixels;
+			double* h_rPtr                = h_pieces  + subpieceNumChunk * pieceNumPixels;
 
 			// Normalize and smooth
 			smooth<<<dimGridSmooth, dimBlockSmooth, 0, streams[subpieceNumChunk]>>>(d_piecePtr, d_mic, d_pieceSmoother, pieceDim, y0, x0, yDim, a, b);
@@ -547,6 +548,10 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+		// Copy next
+		double* h_piecePtr = mic + subpieceNumChunk * pieceNumPixels;
+		CU_CHK(cudaMemcpy(d_mic, mic, xDim * yDim * sizeof(double), cudaMemcpyHostToDevice));
 
 		// Sum reduction of FFT of every piece
 		tPost.tic();
