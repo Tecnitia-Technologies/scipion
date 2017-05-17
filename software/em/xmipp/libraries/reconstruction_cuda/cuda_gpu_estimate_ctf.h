@@ -39,6 +39,9 @@
 class CudaPsdCalculator {
 
 	/* Psd calculator configuration ********************************************************************************************/
+	size_t chunkSize;
+	size_t chunkNum;
+
 	size_t xDim;
 	size_t yDim;
 
@@ -103,8 +106,8 @@ class CudaPsdCalculator {
 
 public:
 
-	CudaPsdCalculator(double overlap, size_t pieceDim, int skipBorders, bool verbose, double* pieceSmoother) :
-		overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), pieceSmoother(pieceSmoother), firstExecution(true) {
+	CudaPsdCalculator(size_t chunkSize, double overlap, size_t pieceDim, int skipBorders, bool verbose, double* pieceSmoother) :
+		chunkSize(chunkSize), overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), pieceSmoother(pieceSmoother), firstExecution(true) {
 
 	}
 

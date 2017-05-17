@@ -211,7 +211,7 @@ void ProgGpuEstimateCTF::run() {
     // CU FFT
 //	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr, verbose);
 
-	CudaPsdCalculator psdCalc(overlap, pieceDim, 0, verbose, pieceSmoother.data);
+	CudaPsdCalculator psdCalc(32, overlap, pieceDim, 0, verbose, pieceSmoother.data);
 
 	for (int var = 0; var < 10; ++var) {
 		psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr);
