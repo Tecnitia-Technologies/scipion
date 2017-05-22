@@ -39,8 +39,8 @@
 class CudaPsdCalculator {
 
 	/* Psd calculator configuration ********************************************************************************************/
-	size_t chunkSize;
-	size_t chunkNum;
+	size_t piecesPerChunk;
+	size_t numChunks;
 
 	size_t xDim;
 	size_t yDim;
@@ -57,6 +57,9 @@ class CudaPsdCalculator {
 	size_t divNumberX;
 	size_t divNumberY;
 	size_t divNumber;
+
+	size_t startingX;
+	size_t startingY;
 
 	size_t inNumPixels;
 	size_t inSize;
@@ -107,12 +110,12 @@ class CudaPsdCalculator {
 public:
 
 	CudaPsdCalculator(size_t chunkSize, double overlap, size_t pieceDim, int skipBorders, bool verbose, double* pieceSmoother) :
-		chunkSize(chunkSize), overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), pieceSmoother(pieceSmoother), firstExecution(true) {
+		overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), pieceSmoother(pieceSmoother), firstExecution(true) {
 
 	}
 
 	virtual ~CudaPsdCalculator() {
-		for (size_t n = 0; n < divNumber; ++n) {
+		for (size_t n = 0; n < piecesPerChunk; ++n) {
 			cudaStreamDestroy(streams[n]);
 			cufftDestroy(plans[n]);
 		}
