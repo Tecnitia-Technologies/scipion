@@ -128,13 +128,13 @@ using namespace cuda_gpu_estimate_ctf_err;
 const int K_SMOOTH_BLOCK_SIZE_X = 32;
 const int K_SMOOTH_BLOCK_SIZE_Y = 32;
 
-__global__ void smooth(double* piece, double* mic, double* pieceSmoother, size_t pieceDim, size_t y0, size_t x0, size_t yDim, double a, double b) {
+__global__ void smooth(double* mic, double* pieceSmoother, double* out, size_t pieceDim, size_t x0, size_t yDim, double a, double b) {
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
 	int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-	size_t it = y * pieceDim + x;
-	size_t micIt = (y0 + y) * yDim + x0 + x;
-	piece[it] = (mic[micIt] * a + b) * pieceSmoother[it];
+	size_t it    = y * pieceDim + x;
+	size_t micIt = y * yDim + x0 + x;
+	out[it]      = (mic[micIt] * a + b) * pieceSmoother[it];
 }
 
 __global__ void naivePost(cuDoubleComplex* fft, double* out, size_t XSIZE_FOURIER, size_t XSIZE_REAL, size_t YSIZE_REAL, double iSize) {
@@ -453,16 +453,6 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-//	t.tic();
-//	CU_CHK(cudaMemcpy(d_mic, mic, xDim * yDim * sizeof(double), cudaMemcpyHostToDevice));
-//	t.toc("Time to copy mic:\t\t");
-
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 	// Create avgStd structure to
 	t.tic();
 	AvgStd avgStd(mic, pieceDim, xDim, overlap, divNumberX, divNumberY);
@@ -487,7 +477,8 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 
 	for (size_t chunk = 0; chunk < numChunks; chunk++) {
 		// Copy next
-		double* h_mic = mic + chunk * pieceNumPixels;
+		size_t sizeOfHostChunk = xDim * (size_t) pieceDim * overlap;
+		double* h_mic          = mic + chunk * sizeOfHostChunk;
 		CU_CHK(cudaMemcpy(d_mic, h_mic, xDim * pieceDim * sizeof(double), cudaMemcpyHostToDevice));
 
 		for (size_t pieceNumChunk = 0;
@@ -534,7 +525,7 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 			double* h_rPtr                = h_pieces  + pieceNumChunk * pieceNumPixels;
 
 			// Normalize and smooth
-			smooth<<<dimGridSmooth, dimBlockSmooth, 0, streams[pieceNumChunk]>>>(d_piecePtr, d_mic, d_pieceSmoother, pieceDim, 0, x0, yDim, a, b);
+			smooth<<<dimGridSmooth, dimBlockSmooth, 0, streams[pieceNumChunk]>>>(d_mic, d_pieceSmoother, d_piecePtr, pieceDim, x0, yDim, a, b);
 			CU_CHK(cudaPeekAtLastError()); // test kernel was created correctly
 
 			// FFT Execution
