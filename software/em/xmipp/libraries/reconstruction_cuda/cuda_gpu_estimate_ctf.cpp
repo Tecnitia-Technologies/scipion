@@ -98,27 +98,6 @@ exit(EXIT_FAILURE); }
 
 using namespace cuda_gpu_estimate_ctf_err;
 
-//void computePieceAvgStd(double* in, size_t pieceDim, size_t y0, size_t yEnd,
-//		size_t x0, size_t xEnd, size_t yDim, double& avg, double& stddev) {
-//	size_t len = pieceDim * pieceDim;
-//	avg = 0.0;
-//	stddev = 0.0;
-//	double val;
-//	for (size_t y = y0; y < yEnd; y++) {
-//		for (size_t x = x0; x < xEnd; x++) {
-//			//std::cerr << "x0 " << x0 << " y0 " << y0 << " xEnd " << xEnd << " yEnd " << yEnd << " x " << x << " y " << y << " p " << y * yDim + x << std::endl;
-//			val = in[y * yDim + x];
-//			avg += val;
-//			stddev += val * val;
-//		}
-//	}
-//	avg /= len;
-//	stddev = stddev / len - avg * avg;
-//	stddev *= len / (len - 1);
-//	// Foreseeing numerical instabilities
-//	stddev = std::sqrt(std::fabs(stddev));
-//}
-
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -286,8 +265,8 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 	this->divNumberY        = std::floor((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
 	this->divNumber         = divNumberX * divNumberY;
 
-	this->startingX         = 2 * skipBorders;
-	this->startingY         = 2 * skipBorders;
+	this->startingX         = skipBorders;
+	this->startingY         = skipBorders;
 
 	this->piecesPerChunk    = divNumberX;
 	this->numChunks         = divNumberY;
@@ -392,41 +371,6 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 }
 
 void CudaPsdCalculator::createPieceSmoother() {
-//	MultidimArray<double> pieceSmoother(pieceDim, pieceDim);
-//	// Attenuate borders to avoid discontinuities
-//	pieceSmoother.initConstant(1);
-//	pieceSmoother.setXmippOrigin();
-//
-//	double iHalfsize = 2.0 / YSIZE(pieceSmoother);
-//	const double alpha = 0.025;
-//	const double alpha1 = 1 - alpha;
-//	const double ialpha = 1.0 / alpha;
-//
-//	for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother);
-//			i++) {
-//		double iFraction = fabs(i * iHalfsize);
-//		if (iFraction > alpha1) {
-//			double maskValue = 0.5 * (1 + cos(PI * ((iFraction - 1) * ialpha + 1)));
-//			for (int j = STARTINGX(pieceSmoother);
-//					j <= FINISHINGX(pieceSmoother); j++)
-//				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
-//		}
-//	}
-//
-//	for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother);
-//			j++) {
-//		double jFraction = fabs(j * iHalfsize);
-//		if (jFraction > alpha1) {
-//			double maskValue = 0.5 * (1 + cos(PI * ((jFraction - 1) * ialpha + 1)));
-//			for (int i = STARTINGY(pieceSmoother);
-//					i <= FINISHINGY(pieceSmoother); i++)
-//				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
-//		}
-//	}
-//
-//	STARTINGX(pieceSmoother) = STARTINGY(pieceSmoother) = 0;
-
-//	CU_CHK(cudaMemcpy(d_pieceSmoother, pieceSmoother.data, pieceSize, cudaMemcpyHostToDevice));
 	CU_CHK(cudaMemcpy(d_pieceSmoother, pieceSmoother, pieceSize, cudaMemcpyHostToDevice));
 }
 
@@ -453,7 +397,7 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	// Create avgStd structure to
+	// Create avgStd structure
 	t.tic();
 	AvgStd avgStd(mic, pieceDim, xDim, overlap, divNumberX, divNumberY);
 	t.toc("Time to subpiece avg:\t\t");
@@ -478,7 +422,7 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	for (size_t chunk = 0; chunk < numChunks; chunk++) {
 		// Copy next
 		size_t sizeOfHostChunk = xDim * (size_t) pieceDim * overlap;
-		double* h_mic          = mic + chunk * sizeOfHostChunk;
+		double* h_mic          = mic + (chunk + startingY) * sizeOfHostChunk;
 		CU_CHK(cudaMemcpy(d_mic, h_mic, xDim * pieceDim * sizeof(double), cudaMemcpyHostToDevice));
 
 		for (size_t pieceNumChunk = 0;
@@ -488,15 +432,7 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 			// Extract piece
 			size_t blocki = subpieceNumAbsolute / divNumberX;
 			size_t blockj = subpieceNumAbsolute % divNumberX;
-			size_t y0 = blocki * step + skipBorders * pieceDim;
 			size_t x0 = blockj * step + skipBorders * pieceDim;
-
-			// Test if the full piece is inside the micrograph
-			if (y0 + pieceDim > yDim)
-				y0 = yDim - pieceDim;
-
-			if (x0 + pieceDim > xDim)
-				x0 = xDim - pieceDim;
 
 			// ComputeAvgStdev
 			const double avgF = 0.0, stddevF = 1.0;
@@ -583,279 +519,3 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	tTotalCompute.toc("Total compute:\t\t\t");
 	tTotal.toc("Total\t\t\t\t");
 }
-
-//void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd, bool verbose) {
-//	TicToc t(true && verbose), tAvg(false && verbose), tPost(true && verbose), tTotal(true && verbose), tTotalCompute(true && verbose);
-//
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//	tTotal.tic();
-//	// Calculate reduced input dim (exact multiple of pieceDim, without skipBorders)
-//	size_t divNumberX         = std::floor((double) xDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
-//	size_t divNumberY         = std::floor((double) yDim / (pieceDim * (1-overlap))) - 1 - 2 * skipBorders;
-//	size_t divNumber          = divNumberX * divNumberY;
-//
-//	size_t inNumPixels        = divNumber * pieceDim * pieceDim;
-//	size_t inSize             = inNumPixels * sizeof(double);
-//
-//	size_t outNumPixels       = divNumber * pieceDim * (pieceDim / 2 + 1);
-//	size_t outSize            = outNumPixels * sizeof(cufftDoubleComplex);
-//
-//	size_t pieceNumPixels     = pieceDim * pieceDim;
-//	size_t pieceSize          = pieceNumPixels * sizeof(double);
-//
-//	size_t pieceFFTNumPixels  = pieceDim * (pieceDim / 2 + 1);
-//	size_t pieceFFTSize       = pieceFFTNumPixels * sizeof(cufftDoubleComplex);
-//
-//	size_t XSIZE_FOURIER      = (pieceDim / 2 + 1);
-//	size_t XSIZE_REAL         = pieceDim;
-//	size_t YSIZE_REAL         = pieceDim;
-//	double iSize              = 1.0 / (pieceDim * pieceDim);
-//
-//	size_t step = (size_t) (((1 - overlap) * pieceDim));
-//
-//	if (verbose) {
-//		std::cout << std::endl;
-//		std::cout << "xDim: " << xDim << std::endl
-//				  << "yDim: " << yDim << std::endl
-//				  << std::endl
-//				  << "divNumberX: " << divNumberX << std::endl
-//				  << "divNumberY: " << divNumberY << std::endl
-//				  << "divNumber : " << divNumber  << std::endl
-//				  << std::endl
-//				  << "pieceDim: " << pieceDim << std::endl
-//				  << "overlap:  " << overlap  << std::endl;
-//		std::cout << std::endl;
-//	}
-//
-//	if (divNumberX <= 0 || divNumberY <= 0) {
-//		std::cerr << "ERROR, can't split a " << xDim << "X" << yDim << " MIC into " << pieceDim << "X" << pieceDim << " pieces" << std::endl
-//				  << "with " << overlap << " overlap and " << skipBorders << " skip borders," << std::endl
-//				  << "resulted in divNumberX=" << divNumberX << ", divNumberY=" << divNumberY << std::endl;
-//		exit(EXIT_FAILURE);
-//	}
-//
-//	// Create avgStd structure to
-//	t.tic();
-//	AvgStd avgStd(mic, pieceDim, xDim, overlap, divNumberX, divNumberY);
-//	t.toc("Time to subpiece avg:\t\t");
-//
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//	// Host page-locked memory
-////	cuDoubleComplex* h_fourier;
-//	double* h_r;
-//	t.tic();
-////	CU_CHK(cudaMallocHost((void**) &h_fourier, outSize));
-//	CU_CHK(cudaMallocHost((void**) &h_r, inSize));
-//	t.toc("Time to pinned malloc:\t\t");
-//
-//	// Device memory
-//	double* d_mic;
-//	double* d_pieces;
-//	cuDoubleComplex*d_fourier;
-//	double* d_pieceSmoother;
-//	t.tic();
-//	CU_CHK(cudaMalloc((void**)&d_mic, xDim * yDim * sizeof(double)));
-//	CU_CHK(cudaMalloc((void**)&d_pieces,  inSize));
-//	CU_CHK(cudaMalloc((void**)&d_fourier, outSize));
-//	CU_CHK(cudaMalloc((void**)&d_pieceSmoother, pieceSize));
-//	t.toc("Time to cuda malloc:\t\t");
-//
-//	t.tic();
-//	CU_CHK(cudaMemcpy(d_mic, mic, xDim * yDim * sizeof(double), cudaMemcpyHostToDevice));
-//	CU_CHK(cudaMemcpy(d_pieceSmoother, pieceSmoother, pieceSize, cudaMemcpyHostToDevice));
-//	t.toc("Time to init memcpy:\t\t");
-//
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//	// Smooth Kernel config
-//	dim3 dimBlockSmooth(K_SMOOTH_BLOCK_SIZE_X, K_SMOOTH_BLOCK_SIZE_Y);
-//	// Calculate number of grids needed for dimBlock,
-//	// wich is pieceDim % block == 0 ? pieceDim / block : pieceDim / block + 1
-//	// in a hacky way
-//	int k_grid_size_x = (pieceDim + K_SMOOTH_BLOCK_SIZE_X - 1) / K_SMOOTH_BLOCK_SIZE_X;
-//	int k_grid_size_y = (pieceDim + K_SMOOTH_BLOCK_SIZE_Y - 1) / K_SMOOTH_BLOCK_SIZE_Y;
-//	dim3 dimGridSmooth(k_grid_size_x, k_grid_size_y);
-//
-//	// CU FFT PLAN
-//	cudaStream_t* streams = new cudaStream_t[divNumber];
-//	cufftHandle*    plans = new cufftHandle[divNumber];
-//
-//	t.tic();
-//	for (size_t n = 0; n < divNumber; ++n) {
-//		CU_CHK(cudaStreamCreate(streams + n));
-//		FFT_CHK(cufftPlan2d(plans + n, pieceDim, pieceDim, CUFFT_D2Z));
-//		FFT_CHK(cufftSetStream(plans[n], streams[n]));
-//	}
-//	t.toc("Time to plans and streams:\t");
-//
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//	tTotalCompute.tic();
-//	// Iterate over all pieces
-//	for (size_t n = 0; n < divNumber; ++n) {
-//		tAvg.tic();
-//		// Extract piece
-//		size_t blocki = n / divNumberX;
-//		size_t blockj = n % divNumberX;
-//		size_t y0 = blocki * step + skipBorders * pieceDim;
-//		size_t x0 = blockj * step + skipBorders * pieceDim;
-//
-//		// Test if the full piece is inside the micrograph
-//		if (y0 + pieceDim > yDim)
-//			y0 = yDim - pieceDim;
-//
-//		if (x0 + pieceDim > xDim)
-//			x0 = xDim - pieceDim;
-//
-//		// ComputeAvgStdev
-//		double avg = 0.0, stddev = 0.0;
-//#ifdef USE_SUBPIECE_AVG
-//		avgStd.getAvgStd(blocki, blockj, avg, stddev);
-//#else
-//		size_t yEnd = y0 + pieceDim;
-//		size_t xEnd = x0 + pieceDim;
-//		computePieceAvgStd(mic, pieceDim, y0, yEnd, x0, xEnd, yDim, avg, stddev);
-//#endif
-//		double a, b; // Norm params
-//		if (stddev != 0.0)
-//			a = stddevF / stddev;
-//		else
-//			a = 0.0;
-//
-//		b = avgF - a * avg;
-//		tAvg.toc("Time to avg std:\t\t");
-//
-//		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//		// Aux pointers
-//		double* d_piecePtr            = d_pieces  + n * pieceNumPixels;
-//		cuDoubleComplex* d_fourierPtr = d_fourier + n * pieceFFTNumPixels;
-////		cuDoubleComplex* h_fourierPtr = h_fourier + n * pieceFFTNumPixels;
-//		double* h_rPtr                = h_r       + n * pieceNumPixels;
-//
-//		// Normalize and smooth
-//		smooth<<<dimGridSmooth, dimBlockSmooth, 0, streams[n]>>>(d_piecePtr, d_mic, d_pieceSmoother, pieceDim, y0, x0, yDim, a, b);
-//		CU_CHK(cudaPeekAtLastError()); // test kernel was created correctly
-//
-//		// FFT Execution
-//		FFT_CHK(cufftExecD2Z(plans[n], d_piecePtr, d_fourierPtr));
-//
-//		// Post process (expansion)
-//		naivePost<<<dimGridSmooth, dimBlockSmooth, 0, streams[n]>>>(d_fourierPtr, d_piecePtr, XSIZE_FOURIER, XSIZE_REAL, YSIZE_REAL, iSize);
-//		CU_CHK(cudaPeekAtLastError()); // test kernel was created correctly
-//
-//		// Read result
-//		//		CU_CHK(cudaMemcpyAsync(h_fourierPtr, d_fourierPtr, pieceFFTSize, cudaMemcpyDeviceToHost, streams[n]));
-//		CU_CHK(cudaMemcpyAsync(h_rPtr, d_piecePtr, pieceSize, cudaMemcpyDeviceToHost, streams[n]));
-//	}
-//
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//	// Expand + redux
-////	size_t XSIZE_FOURIER = (pieceDim / 2 + 1);
-////	size_t XSIZE_REAL = pieceDim;
-////	size_t YSIZE_REAL = pieceDim;
-////
-////	double iSize = 1.0 / (pieceDim * pieceDim);;
-////
-////	for (size_t n = 0; n < divNumber; ++n) {
-////		// Wait for fft completed for this piece
-////		CU_CHK(cudaStreamSynchronize(streams[n]));
-////		CU_CHK(cudaStreamDestroy(streams[n]));
-////		FFT_CHK(cufftDestroy(plans[n]));
-////
-////		tPost.tic();
-////		cuDoubleComplex val;
-////		double* ptrDest;
-////		size_t iterator;
-////		for (size_t i = 0; i < pieceDim; ++i) {
-////			for (size_t j = 0; j < pieceDim; ++j) {
-////				ptrDest = (double*) &psd[i * XSIZE_REAL + j];
-////
-////				if (j < XSIZE_FOURIER) {
-////					iterator  = n * pieceFFTNumPixels + i * XSIZE_FOURIER + j;
-////				} else {
-////					iterator  = n * pieceFFTNumPixels
-////							+ (((YSIZE_REAL) - i) % (YSIZE_REAL))
-////									* XSIZE_FOURIER + ((XSIZE_REAL) - j);
-////				}
-////				val = *(h_fourier + iterator);
-////				double real = cuCreal(val) * iSize;
-////				double imag = cuCimag(val) * iSize;
-////				*ptrDest += (real * real + imag * imag);
-////			}
-////		}
-////		tPost.toc("Time to post:\t\t\t");
-////	}
-//	tPost.tic();
-//	for (size_t n = 0; n < divNumber; ++n) {
-//		// Wait for fft completed for this piece
-//		CU_CHK(cudaStreamSynchronize(streams[n]));
-//
-//		for (size_t i = 0; i < pieceDim; ++i) {
-//			for (size_t j = 0; j < pieceDim; ++j) {
-//				psd[i * pieceDim + j] += h_r[n * pieceNumPixels + i * pieceDim + j];
-//			}
-//		}
-//	}
-//	tPost.toc("Time to post:\t\t\t");
-//
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//
-//	// Average
-//	t.tic();
-//	double idiv_Number = 1.0 / (divNumber) * pieceDim * pieceDim;
-//	for(size_t i = 0; i < pieceDim * pieceDim; ++i)	{
-//		psd[i] *= idiv_Number;
-//	}
-//	t.toc("Final reduction:\t\t");
-//	tTotalCompute.toc("Total compute:\t\t\t");
-//
-//
-//	t.tic();
-//	for (size_t n = 0; n < divNumber; ++n) {
-//		CU_CHK(cudaStreamDestroy(streams[n]));
-//		FFT_CHK(cufftDestroy(plans[n]));
-//	}
-//	t.toc("Destroy:\t\t\t");
-//
-//	// Free memory
-////	CU_CHK(cudaFreeHost(h_fourier));
-//	CU_CHK(cudaFreeHost(h_r));
-//	CU_CHK(cudaFree(d_pieces));
-//	CU_CHK(cudaFree(d_fourier));
-//	CU_CHK(cudaFree(d_pieceSmoother));
-//	CU_CHK(cudaFree(d_mic));
-//
-//	tTotal.toc("Total\t\t\t\t");
-//}

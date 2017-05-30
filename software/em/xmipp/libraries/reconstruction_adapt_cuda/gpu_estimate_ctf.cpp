@@ -39,10 +39,11 @@
 // Read arguments ==========================================================
 void ProgGpuEstimateCTF::readParams()
 {
-	fnMic = getParam("-i");
-	fnOut = getParam("-o");
-    pieceDim = getIntParam("--pieceDim");
-    overlap = getDoubleParam("--overlap");
+	fnMic       = getParam("-i");
+	fnOut       = getParam("-o");
+    pieceDim    = getIntParam("--pieceDim");
+    overlap     = getDoubleParam("--overlap");
+    skipBorders = getIntParam("--skipBorders");
 }
 
 // Show ====================================================================
@@ -54,6 +55,7 @@ void ProgGpuEstimateCTF::show()
 	<< "Input micrograph:          " << fnMic    << std::endl
 	<< "Piece dim:                 " << pieceDim << std::endl
 	<< "Piece overlap:             " << overlap  << std::endl
+	<< "Skip borders:              " << skipBorders  << std::endl
 	;
 }
 
@@ -65,6 +67,7 @@ void ProgGpuEstimateCTF::defineParams()
     addParamsLine("   -o <micrograph>        : Output psd");
     addParamsLine("  [--pieceDim <d=512>]    : Size of the piece");
     addParamsLine("  [--overlap <o=0.5>]     : Overlap (0=no overlap, 1=full overlap)");
+    addParamsLine("  [--skipBorders <s=0>]   : Skipped pieces from each side");
 }
 
 /* Construct piece smoother =============================================== */
@@ -131,47 +134,6 @@ void ProgGpuEstimateCTF::extractPiece(const MultidimArray<T>& mic, int N,
 			piecej + XSIZE(piece) - 1);
 }
 
-template <typename T>
-void ProgGpuEstimateCTF::computeDivisions(const Image<T>& mic,
-		int& div_Number, int& div_NumberX, int& div_NumberY,
-		size_t& Xdim, size_t& Ydim,	size_t& Zdim, size_t& Ndim) {
-	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
-
-	div_NumberX = CEIL((double)Xdim / (pieceDim *(1-overlap))) - 1;
-	div_NumberY = CEIL((double)Ydim / (pieceDim *(1-overlap))) - 1;
-	div_Number = div_NumberX * div_NumberY;
-
-	if (verbose) {
-		std::cout << "Xdim: " << Xdim << std::endl
-				  << "Ydim: " << Ydim << std::endl
-				  << "Zdim: " << Zdim << std::endl
-				  << "Ndim: " << Ndim << std::endl
-				  << std::endl
-				  << "div_NumberX: " << div_NumberX << std::endl
-				  << "div_NumberY: " << div_NumberY << std::endl
-				  << "div_Number : " << div_Number << std::endl
-				  << std::endl
-				  << "pieceDim: " << pieceDim << std::endl
-				  << "overlap:  " << overlap  << std::endl;
-	}
-}
-
-const double TOL = 10e-6;
-
-template<typename T>
-void checkArray(T* cpu, T* gpu, size_t size, std::string name, bool printErr=false, bool printNum=true) {
-	size_t err = 0;
-	for (size_t i = 0; i < size; ++i) {
-		if (std::abs(cpu[i] - gpu[i]) > TOL) {
-			err++;
-			if(printErr)
-				std::cerr << name << " i:\t" << i << " cpu: \t" << cpu[i] << " gpu:\t" << gpu[i] << std::endl;
-		}
-	}
-	if (err > 0)
-		std::cerr << name << " numErr: " << err << std::endl;
-}
-
 void ProgGpuEstimateCTF::run() {
 	if (pieceDim % 2 != 0) {
 		std::cerr << "ERROR, pieceDim must be even" << std::endl;
@@ -210,8 +172,7 @@ void ProgGpuEstimateCTF::run() {
 
     // CU FFT
 //	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr, verbose);
-
-	CudaPsdCalculator psdCalc(32, overlap, pieceDim, 0, verbose, pieceSmoother.data);
+	CudaPsdCalculator psdCalc(32, overlap, pieceDim, skipBorders, true, pieceSmoother.data);
 
 	for (int var = 0; var < 10; ++var) {
 		psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr);

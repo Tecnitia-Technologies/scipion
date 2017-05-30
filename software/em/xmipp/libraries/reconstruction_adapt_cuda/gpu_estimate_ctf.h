@@ -55,6 +55,8 @@ public:
 	FileName fnOut;
     /// Dimension of micrograph pieces
 	size_t pieceDim;
+    /// Pieces skipped from each side
+	size_t skipBorders;
     /** Overlap among pieces (0=No overlap, 1=Full overlap */
     double overlap;
 public:
