@@ -26,9 +26,9 @@
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
 
-#include "gpu_estimate_ctf.h"
+#include "gpu_psd_calculator.h"
 
-#include <reconstruction_cuda/cuda_gpu_estimate_ctf.h>
+#include <reconstruction_cuda/cuda_gpu_psd_calculator.h>
 #include <data/xmipp_fftw.h>
 #include <data/xmipp_image.h>
 #include <data/xmipp_program.h>
@@ -37,7 +37,7 @@
 #include <TicTocHeaderOnly.h>
 
 // Read arguments ==========================================================
-void ProgGpuEstimateCTF::readParams()
+void ProgGpuCalculatePsd::readParams()
 {
 	fnMic       = getParam("-i");
 	fnOut       = getParam("-o");
@@ -47,7 +47,7 @@ void ProgGpuEstimateCTF::readParams()
 }
 
 // Show ====================================================================
-void ProgGpuEstimateCTF::show()
+void ProgGpuCalculatePsd::show()
 {
 	if (verbose==0)
 		return;
@@ -60,7 +60,7 @@ void ProgGpuEstimateCTF::show()
 }
 
 // usage ===================================================================
-void ProgGpuEstimateCTF::defineParams()
+void ProgGpuCalculatePsd::defineParams()
 {
     addUsageLine("Estimate Xmipp CTF model from micrograph with CUDA in GPU");
     addParamsLine("   -i <micrograph>        : Input micrograph");
@@ -70,7 +70,7 @@ void ProgGpuEstimateCTF::defineParams()
     addParamsLine("  [--skipBorders <s=0>]   : Skipped pieces from each side");
 }
 
-/* Construct piece smoother =============================================== */
+// Construct piece smoother ================================================
 template <typename T>
 void constructPieceSmoother(const MultidimArray<T> &piece,
 		MultidimArray<T> &pieceSmoother) {
@@ -113,32 +113,7 @@ void constructPieceSmoother(const MultidimArray<T> &piece,
 	STARTINGX(pieceSmoother) = STARTINGY(pieceSmoother) = 0;
 }
 
-template <typename T>
-void ProgGpuEstimateCTF::extractPiece(const MultidimArray<T>& mic, int N,
-		int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<T>& piece) {
-
-	int step = (int) (((1 - overlap) * pieceDim));
-	int blocki = (N - 1) / div_NumberX;
-	int blockj = (N - 1) % div_NumberX;
-	int piecei = blocki * step;
-	int piecej = blockj * step;
-	// test if the full piece is inside the micrograph
-	if (piecei + pieceDim > Ydim)
-		piecei = Ydim - pieceDim;
-
-	if (piecej + pieceDim > Xdim)
-		piecej = Xdim - pieceDim;
-
-	piece(pieceDim, pieceDim);
-	window2D(mic, piece, piecei, piecej, piecei + YSIZE(piece) - 1,
-			piecej + XSIZE(piece) - 1);
-}
-
-void ProgGpuEstimateCTF::run() {
-	if (pieceDim % 2 != 0) {
-		std::cerr << "ERROR, pieceDim must be even" << std::endl;
-		exit(EXIT_FAILURE);
-	}
+void ProgGpuCalculatePsd::run() {
 	TicToc t, total;
 
 	total.tic();
@@ -152,15 +127,8 @@ void ProgGpuEstimateCTF::run() {
 	psd().initZeros(pieceDim, pieceDim);
 	real_t *psdPtr = psd().data;
 
-	Image<real_t> psd2;
-	psd2().initZeros(pieceDim, pieceDim);
-	real_t *psdPtr2 = psd2().data;
-
 	// Compute the number of divisions --------------------------------------
 	size_t Xdim, Ydim, Zdim, Ndim;
-//	int div_Number;
-//	int div_NumberX, div_NumberY;
- 	//computeDivisions(mic, div_Number, div_NumberX, div_NumberY, Xdim, Ydim, Zdim, Ndim);
 	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
 
  	// Attenuate borders to avoid discontinuities
@@ -170,17 +138,9 @@ void ProgGpuEstimateCTF::run() {
     constructPieceSmoother(piece, pieceSmoother);
     t.toc("piece smoother\t\t\t");
 
-    // CU FFT
-//	cudaRunGpuEstimateCTF(micPtr, Xdim, Ydim, overlap, pieceDim, 0, pieceSmoother.data, psdPtr, verbose);
 	CudaPsdCalculator psdCalc(32, overlap, pieceDim, skipBorders, true, pieceSmoother.data);
-
-	for (int var = 0; var < 10; ++var) {
-		psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr);
-		std::cout << std::endl;
-	}
-	psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr2);
-	std::cout << std::endl;
+	psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr);
 
 	total.toc("Total\t\t\t\t");
-	psd2.write(fnOut);
+	psd.write(fnOut);
 }

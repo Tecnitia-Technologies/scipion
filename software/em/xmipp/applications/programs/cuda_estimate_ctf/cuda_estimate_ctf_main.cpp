@@ -26,7 +26,7 @@
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
 
-#include <reconstruction_adapt_cuda/gpu_estimate_ctf.h>
+#include <reconstruction_adapt_cuda/gpu_psd_calculator.h>
 
-RUN_XMIPP_PROGRAM(ProgGpuEstimateCTF)
+RUN_XMIPP_PROGRAM(ProgGpuCalculatePsd)
 

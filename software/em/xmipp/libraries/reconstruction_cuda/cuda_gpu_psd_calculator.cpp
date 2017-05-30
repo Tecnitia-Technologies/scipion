@@ -25,7 +25,7 @@
  *  All comments concerning this program package may be sent to the
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
-#include "cuda_gpu_estimate_ctf.h"
+#include "cuda_gpu_psd_calculator.h"
 
 #include <stdio.h>
 #include <algorithm>
@@ -129,7 +129,6 @@ __global__ void naivePost(cuDoubleComplex* fft, double* out, size_t XSIZE_FOURIE
 		iterator  = i * XSIZE_FOURIER + j;
 	} else {
 		// Using {x & (n-1)} as {x % (n)}, only works if n is POW of 2
-		// TODO error if n not pow of 2, or use different kernel
 		iterator  = (((YSIZE_REAL) - i) & (YSIZE_REAL-1)) * XSIZE_FOURIER + ((XSIZE_REAL) - j);
 	}
 	val = fft[iterator];
@@ -371,7 +370,7 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 }
 
 void CudaPsdCalculator::createPieceSmoother() {
-	CU_CHK(cudaMemcpy(d_pieceSmoother, pieceSmoother, pieceSize, cudaMemcpyHostToDevice));
+	CU_CHK(cudaMemcpy(d_pieceSmoother, h_pieceSmoother, pieceSize, cudaMemcpyHostToDevice));
 }
 
 void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, double* psd) {
@@ -415,16 +414,17 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	tTotalCompute.tic();
-	// Iterate over all pieces
 
 	size_t subpieceNumAbsolute = 0;
-
+	// Iterate over all the chunks
 	for (size_t chunk = 0; chunk < numChunks; chunk++) {
-		// Copy next
+
+		// Copy chunk to GPU
 		size_t sizeOfHostChunk = xDim * (size_t) pieceDim * overlap;
 		double* h_mic          = mic + (chunk + startingY) * sizeOfHostChunk;
 		CU_CHK(cudaMemcpy(d_mic, h_mic, xDim * pieceDim * sizeof(double), cudaMemcpyHostToDevice));
 
+		// Process Chunk on GPU (process each piece of the chunk)
 		for (size_t pieceNumChunk = 0;
 				pieceNumChunk < piecesPerChunk && subpieceNumAbsolute < divNumber;
 				++pieceNumChunk, subpieceNumAbsolute++) {

@@ -25,18 +25,16 @@
  *  All comments concerning this program package may be sent to the
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
-#ifndef _PROG_GPU_ESTIMATE_CTF
-#define _PROG_GPU_ESTIMATE_CTF
+#ifndef _PROG_GPU_PSD_CALCULATOR__
+#define _PROG_GPU_PSD_CALCULATOR__
 
 
 #include <data/xmipp_program.h>
 
 
-/**@defgroup Estimate CTF through the GPU
+/**@defgroup Calculate PSD through the GPU
    @ingroup ReconsLibrary */
 //@{
-
-//#define CU_ESTIMATE_CTF_USE_FLOAT
 
 #ifdef CU_ESTIMATE_CTF_USE_FLOAT
 typedef float real_t;
@@ -46,18 +44,18 @@ typedef double real_t;
 typedef std::complex<double> complex_t;
 #endif
 
-class ProgGpuEstimateCTF: public XmippProgram
+class ProgGpuCalculatePsd: public XmippProgram
 {
 public:
-    /** Filename input micrograph */
+    /// Filename input micrograph
 	FileName fnMic;
-    /** Filename output psd */
+    /// Filename output psd
 	FileName fnOut;
     /// Dimension of micrograph pieces
 	size_t pieceDim;
     /// Pieces skipped from each side
 	size_t skipBorders;
-    /** Overlap among pieces (0=No overlap, 1=Full overlap */
+	/// Overlap among pieces (0=No overlap, 1=Full overlap
     double overlap;
 public:
     /// Read argument from command line
@@ -69,18 +67,8 @@ public:
     /// Define parameters
     void defineParams();
 
-    /** Run */
+    /// Run
     void run();
-
-private:
-	template <typename T>
-	void extractPiece(const MultidimArray<T>& mic, int N,
-			int div_NumberX, size_t Ydim, size_t Xdim, MultidimArray<T>& piece);
-
-	template <typename T>
-	void computeDivisions(const Image<T>& mic,
-			int& div_Number, int& div_NumberX, int& div_NumberY,
-			size_t& Xdim, size_t& Ydim,	size_t& Zdim, size_t& Ndim);
 };
 //@}
 #endif

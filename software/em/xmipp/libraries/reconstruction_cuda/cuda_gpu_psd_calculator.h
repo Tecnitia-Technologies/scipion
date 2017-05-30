@@ -26,10 +26,12 @@
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
 
-#ifndef __CUDA_GPU_ESTIMATE_CTF__
-#define __CUDA_GPU_ESTIMATE_CTF__
+#ifndef __CUDA_GPU_PSD_CALCULATOR__
+#define __CUDA_GPU_PSD_CALCULATOR__
 
 #define USE_PINNED
+
+#include <iostream>
 
 #include <cuda.h>
 #include <cufft.h>
@@ -38,10 +40,7 @@
 
 class CudaPsdCalculator {
 
-	/* Psd calculator configuration ********************************************************************************************/
-	size_t piecesPerChunk;
-	size_t numChunks;
-
+	/* Psd calculator configuration **********************************************************************************/
 	size_t xDim;
 	size_t yDim;
 
@@ -53,10 +52,13 @@ class CudaPsdCalculator {
 
 	bool firstExecution;
 
-	/* Size variables **********************************************************************************************************/
+	/* Size variables ************************************************************************************************/
 	size_t divNumberX;
 	size_t divNumberY;
 	size_t divNumber;
+
+	size_t piecesPerChunk;
+	size_t numChunks;
 
 	size_t startingX;
 	size_t startingY;
@@ -80,10 +82,10 @@ class CudaPsdCalculator {
 
 	size_t step;
 
-	/* GPU and host memory addresses *******************************************************************************************/
+	/* GPU and host memory addresses ********************************************************************************/
 	// Host page-locked memory
 	double* h_pieces;
-	double* pieceSmoother;
+	double* h_pieceSmoother;
 
 	// Device memory
 	double* d_mic;
@@ -92,15 +94,11 @@ class CudaPsdCalculator {
 	cuDoubleComplex* d_fourier;
 
 
-	/* GPU kernel sizes ********************************************************************************************************/
+	/* GPU kernel sizes *********************************************************************************************/
 	dim3 dimBlockSmooth;
 	dim3 dimGridSmooth;
 	cudaStream_t* streams;
 	cufftHandle* plans;
-
-
-
-	/* GPU kernel sizes ********************************************************************************************************/
 
 	// Lazy init of variales and memory allocation
 	void firstExecutionConfiguration(size_t xDim, size_t yDim);
@@ -110,7 +108,28 @@ class CudaPsdCalculator {
 public:
 
 	CudaPsdCalculator(size_t chunkSize, double overlap, size_t pieceDim, int skipBorders, bool verbose, double* pieceSmoother) :
-		overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), pieceSmoother(pieceSmoother), firstExecution(true) {
+		overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), h_pieceSmoother(pieceSmoother), firstExecution(true) {
+
+		// Params check
+
+		// Restriction is in naivePost kernel (cuda_gpu_estimate_ctf.cpp:__global__ void naivePost)
+		if ((pieceDim & (pieceDim - 1)) != 0) {
+			std::cerr << std::endl;
+			std::cerr << "**********************************" << std::endl;
+			std::cerr << "ERROR, pieceDim MUST be power of 2" << std::endl;
+			std::cerr << "**********************************" << std::endl;
+			std::cerr << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		
+		if (overlap != 0.5) {
+			std::cerr << std::endl;
+			std::cerr << "**************************" << std::endl;
+			std::cerr << "ERROR, overlap MUST be 0.5" << std::endl;
+			std::cerr << "**************************" << std::endl;
+			std::cerr << std::endl;
+			exit(EXIT_FAILURE);
+		}
 
 	}
 
@@ -133,15 +152,6 @@ public:
 
 	void calculatePsd(double* mic, size_t xDim, size_t yDim, double* psd);
 
-//	void calculatePsd(const Image<double>& mic, Image<double>& psd) {
-//		calculatePsd(mic.data.data, mic.data.xdim, mic.data.ydim, psd.data.data);
-//	}
-//
-//	void calculatePsd(const MultidimArray<double>& mic, MultidimArray<double>& psd) {
-//		calculatePsd(mic.data, mic.xdim, mic.data.ydim, psd.data);
-//	}
-
 };
 
-//void cudaRunGpuEstimateCTF(double* mic, size_t xDim, size_t yDim, double overlap, size_t pieceDim, int skipBorders, double* pieceSmoother, double* psd, bool verbose);
 #endif
