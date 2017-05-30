@@ -138,7 +138,7 @@ void ProgGpuCalculatePsd::run() {
     constructPieceSmoother(piece, pieceSmoother);
     t.toc("piece smoother\t\t\t");
 
-	CudaPsdCalculator psdCalc(32, overlap, pieceDim, skipBorders, true, pieceSmoother.data);
+	CudaPsdCalculator psdCalc(overlap, pieceDim, skipBorders, true, pieceSmoother.data);
 	psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr);
 
 	total.toc("Total\t\t\t\t");

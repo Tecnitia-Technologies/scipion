@@ -107,7 +107,7 @@ class CudaPsdCalculator {
 
 public:
 
-	CudaPsdCalculator(size_t chunkSize, double overlap, size_t pieceDim, int skipBorders, bool verbose, double* pieceSmoother) :
+	CudaPsdCalculator(double overlap, size_t pieceDim, int skipBorders, bool verbose, double* pieceSmoother) :
 		overlap(overlap), pieceDim(pieceDim), skipBorders(skipBorders), verbose(verbose), h_pieceSmoother(pieceSmoother), firstExecution(true) {
 
 		// Params check
