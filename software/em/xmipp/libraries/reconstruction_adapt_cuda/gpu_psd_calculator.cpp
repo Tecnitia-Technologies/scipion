@@ -34,8 +34,6 @@
 #include <data/xmipp_program.h>
 #include <data/multidim_array.h>
 
-#include <TicTocHeaderOnly.h>
-
 // Read arguments ==========================================================
 void ProgGpuCalculatePsd::readParams()
 {
@@ -74,20 +72,15 @@ void ProgGpuCalculatePsd::defineParams()
 template <typename T>
 void constructPieceSmoother(const MultidimArray<T> &piece,
 		MultidimArray<T> &pieceSmoother) {
-    TicToc t(false);
 	// Attenuate borders to avoid discontinuities
 	pieceSmoother.resizeNoCopy(piece);
-    t.tic();
 	pieceSmoother.initConstant(1);
-    t.toc("initConstant piece smoother\t");
 	pieceSmoother.setXmippOrigin();
 
 	T iHalfsize = 2.0 / YSIZE(pieceSmoother);
 	const T alpha = 0.025;
 	const T alpha1 = 1 - alpha;
 	const T ialpha = 1.0 / alpha;
-
-	t.tic();
 
 	for (int i = STARTINGY(pieceSmoother); i <= FINISHINGY(pieceSmoother); i++) {
 		T iFraction = fabs(i * iHalfsize);
@@ -97,9 +90,7 @@ void constructPieceSmoother(const MultidimArray<T> &piece,
 				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
 		}
 	}
-    t.toc("for1 piece smoother\t\t");
 
-    t.tic();
 	for (int j = STARTINGX(pieceSmoother); j <= FINISHINGX(pieceSmoother); j++) {
 		T jFraction = fabs(j * iHalfsize);
 		if (jFraction > alpha1) {
@@ -108,21 +99,17 @@ void constructPieceSmoother(const MultidimArray<T> &piece,
 				A2D_ELEM(pieceSmoother,i,j) *= maskValue;
 		}
 	}
-    t.toc("for2 piece smoother\t\t");
 
 	STARTINGX(pieceSmoother) = STARTINGY(pieceSmoother) = 0;
 }
 
 void ProgGpuCalculatePsd::run() {
-	TicToc t, total;
-
-	total.tic();
-	// Input
+	// Input ----------------------------------------------------------------
 	Image<real_t> mic;
 	mic.read(fnMic);
 	real_t *micPtr = mic().data;
 
-	// Result
+	// Result ---------------------------------------------------------------
 	Image<real_t> psd;
 	psd().initZeros(pieceDim, pieceDim);
 	real_t *psdPtr = psd().data;
@@ -131,16 +118,14 @@ void ProgGpuCalculatePsd::run() {
 	size_t Xdim, Ydim, Zdim, Ndim;
 	mic.getDimensions(Xdim, Ydim, Zdim, Ndim);
 
- 	// Attenuate borders to avoid discontinuities
+	// Create piece smoother ------------------------------------------------
 	MultidimArray<real_t> piece(pieceDim, pieceDim);
-    t.tic();
     MultidimArray<real_t> pieceSmoother;
     constructPieceSmoother(piece, pieceSmoother);
-    t.toc("piece smoother\t\t\t");
 
+    // Calculate PSD on GPU -------------------------------------------------
 	CudaPsdCalculator psdCalc(overlap, pieceDim, skipBorders, true, pieceSmoother.data);
 	psdCalc.calculatePsd(micPtr, Xdim, Ydim, psdPtr);
 
-	total.toc("Total\t\t\t\t");
 	psd.write(fnOut);
 }

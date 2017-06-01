@@ -37,7 +37,10 @@
 
 #include <TicTocHeaderOnly.h>
 
-// Error handling
+///////////////////////////////////
+// CUDA Error handling ////////////
+///////////////////////////////////
+
 #include <iostream>
 
 namespace cuda_gpu_estimate_ctf_err {
@@ -106,10 +109,13 @@ using namespace cuda_gpu_estimate_ctf_err;
 
 const int K_SMOOTH_BLOCK_SIZE_X = 32;
 const int K_SMOOTH_BLOCK_SIZE_Y = 32;
+
 /**
- * This kernel smooths each piece of the mic with pieceSmoother, and stores it on a different memory address, out, where each piece is stored consecutively
+ * This kernel smooths each piece of the mic with pieceSmoother,
+ * and stores it on a different memory address, out, where each piece is stored consecutively
  */
-__global__ void smooth(double* mic, double* pieceSmoother, double* out, size_t pieceDim, size_t x0, size_t yDim, double a, double b) {
+__global__ void smooth(double* mic, double* pieceSmoother, double* out,
+		size_t pieceDim, size_t x0, size_t yDim, double a, double b) {
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
 	int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -119,14 +125,17 @@ __global__ void smooth(double* mic, double* pieceSmoother, double* out, size_t p
 }
 
 /**
- * This kernel expands the FFT vector (fft) to a full-sized matrix (out), according to the Hermitian symmetry that the FFT vector satisfies
+ * This kernel expands the FFT vector (fft) to a full-sized matrix (out),
+ * according to the Hermitian symmetry that the FFT vector satisfies
  * Also performs the magnitude of the result
  *
- * In the end, it goes from a complex vector of size (pieceDim * (pieceDim / 2 + 1)) to a real vector of size (pieceDim * pieceDim)
+ * In the end, it goes from a complex vector of size (pieceDim * (pieceDim / 2 + 1))
+ * to a real vector of size (pieceDim * pieceDim)
  *
  * naivePost: |C[pieceDim * (pieceDim / 2 + 1)] -----> |R[pieceDim * pieceDim]
  */
-__global__ void naivePost(cuDoubleComplex* fft, double* out, size_t XSIZE_FOURIER, size_t XSIZE_REAL, size_t YSIZE_REAL, double iSize) {
+__global__ void naivePost(cuDoubleComplex* fft, double* out,
+		size_t XSIZE_FOURIER, size_t XSIZE_REAL, size_t YSIZE_REAL, double iSize) {
 	int j = blockIdx.x * blockDim.x + threadIdx.x;
 	int i = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -154,12 +163,14 @@ __global__ void naivePost(cuDoubleComplex* fft, double* out, size_t XSIZE_FOURIE
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * This class is used to calculate the AVG and the STD of each piece of the mic faster, as only one pass over the mic is done,
- * inestead of iterating over all the pieces completely, which leads to pass over the overlapping parts of the pieces more than once.
+ * This class is used to calculate the AVG and the STD of each piece of the mic faster,
+ * as only one pass over the mic is done, inestead of iterating over all the pieces completely,
+ * which leads to pass over the overlapping parts of the pieces more than once.
  *
  * Usage:
  * 		- Call the constructor with the desired MIC and params
- * 		- Use the method getAvgStd to get the mean and average of the desired piece, defined by its x and y position on the mic
+ * 		- Use the method getAvgStd to get the mean and average of the desired piece,
+ * 		  defined by its x and y position on the mic
  */
 class AvgStd {
 
@@ -249,6 +260,9 @@ public:
 		delete [] stdSubpieces;
 	}
 
+	/*
+	 * Returns the avg and the stddev of the piece in position (blocki, blockj)
+	 */
 	void getAvgStd(size_t blocki, size_t blockj, double& avg, 	double& stddev) {
 		avg =     avgSubpieces[blocki       * numSubpiecesX + blockj]
 				+ avgSubpieces[blocki       * numSubpiecesX + blockj + 1]
@@ -272,6 +286,12 @@ public:
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+/*
+ * Initializes all variables, device memory and host memory needed.
+ * This method should be called once in the lifetime of each instance
+ * (the first time the method calculatePsd() is called)
+ */
 void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 	TicToc t(true && verbose);
 
@@ -391,6 +411,13 @@ void CudaPsdCalculator::createPieceSmoother() {
 	CU_CHK(cudaMemcpy(d_pieceSmoother, h_pieceSmoother, pieceSize, cudaMemcpyHostToDevice));
 }
 
+/*
+ * Returns the PSD of mic
+ *
+ * Initializes variables and the device lazily, paying initialization overhead time
+ * (which is pretty high) only in the first call. Thus, for all mics with the same size,
+ * you should call this method of the same instance of CudaPsdCalculator
+ */
 void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, double* psd) {
 	TicToc t(true && verbose), tAvg(false && verbose), tPost(true && verbose), tTotal(true && verbose), tTotalCompute(true && verbose);
 

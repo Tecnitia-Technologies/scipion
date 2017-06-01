@@ -38,6 +38,16 @@
 
 #include <cufftXt.h>
 
+/*
+ * This class is used to calculate the PSD of MICs
+ *
+ * The overhead to pay to create all structures (FFT plans) and memory allocation
+ * is pretty high, and doing it each time we want to calculate the PSD is a bad idea.
+ * The purpose of this class is preventing this: all PSD whit the same properties
+ * (same size, etc) will have the same structures, so with this class we initialize
+ * all this once; then for every mic we only have to copy it to the device and do the
+ * main process (FFT)
+ */
 class CudaPsdCalculator {
 
 	/* Psd calculator configuration **********************************************************************************/
@@ -151,7 +161,6 @@ public:
 	}
 
 	void calculatePsd(double* mic, size_t xDim, size_t yDim, double* psd);
-
 };
 
 #endif
