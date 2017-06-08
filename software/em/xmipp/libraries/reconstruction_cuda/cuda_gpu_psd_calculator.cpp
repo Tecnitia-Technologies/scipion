@@ -35,8 +35,6 @@
 #include <cufftXt.h>
 #include <cmath>
 
-#include <TicTocHeaderOnly.h>
-
 ///////////////////////////////////
 // CUDA Error handling ////////////
 ///////////////////////////////////
@@ -293,8 +291,6 @@ public:
  * (the first time the method calculatePsd() is called)
  */
 void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
-	TicToc t(true && verbose);
-
 	this->xDim              = xDim;
 	this->yDim              = yDim;
 
@@ -357,21 +353,15 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	// Host page-locked memory (pinned memory for async memCpys)
-	t.tic();
 	CU_CHK(cudaMallocHost((void**) &h_pieces, inSize));
-	t.toc("Time to pinned malloc:\t\t");
 
 	// Device memory
-	t.tic();
 	CU_CHK(cudaMalloc((void**)&d_mic, xDim * pieceDim * sizeof(double)));
 	CU_CHK(cudaMalloc((void**)&d_pieces,  inSize));
 	CU_CHK(cudaMalloc((void**)&d_fourier, outSize));
 	CU_CHK(cudaMalloc((void**)&d_pieceSmoother, pieceSize));
-	t.toc("Time to cuda malloc:\t\t");
 
-	t.tic();
 	createPieceSmoother();
-	t.toc("Time to create piece smoother:\t");
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -392,13 +382,11 @@ void CudaPsdCalculator::firstExecutionConfiguration(size_t xDim, size_t yDim) {
 	streams = new cudaStream_t[piecesPerChunk];
 	plans   = new cufftHandle[piecesPerChunk];
 
-	t.tic();
 	for (size_t n = 0; n < piecesPerChunk; ++n) {
 		CU_CHK(cudaStreamCreate(streams + n));
 		FFT_CHK(cufftPlan2d(plans + n, pieceDim, pieceDim, CUFFT_D2Z));
 		FFT_CHK(cufftSetStream(plans[n], streams[n]));
 	}
-	t.toc("Time to plans and streams:\t");
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -419,9 +407,6 @@ void CudaPsdCalculator::createPieceSmoother() {
  * you should call this method of the same instance of CudaPsdCalculator
  */
 void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, double* psd) {
-	TicToc t(true && verbose), tAvg(false && verbose), tPost(true && verbose), tTotal(true && verbose), tTotalCompute(true && verbose);
-
-	tTotal.tic();
 	if (firstExecution) {
 		firstExecutionConfiguration(xDim, yDim);
 		firstExecution = false;
@@ -442,9 +427,7 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	// Create avgStd structure
-	t.tic();
 	AvgStd avgStd(mic, pieceDim, xDim, overlap, divNumberX, divNumberY);
-	t.toc("Time to subpiece avg:\t\t");
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -457,8 +440,6 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-	tTotalCompute.tic();
 
 	size_t subpieceNumAbsolute = 0;
 	// Iterate over all the chunks
@@ -473,7 +454,6 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 		for (size_t pieceNumChunk = 0;
 				pieceNumChunk < piecesPerChunk && subpieceNumAbsolute < divNumber;
 				++pieceNumChunk, subpieceNumAbsolute++) {
-			tAvg.tic();
 			// Extract piece
 			size_t blocki = chunk;
 			size_t blockj = pieceNumChunk;
@@ -492,7 +472,6 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 				a = 0.0;
 
 			b = avgF - a * avg;
-			tAvg.toc("Time to avg std:\t\t");
 
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -527,7 +506,6 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 		// Sum reduction of FFT of every piece of the chunk on the result PSD
-		tPost.tic();
 		size_t absPos = chunk * piecesPerChunk;
 		for (size_t n = 0; n < piecesPerChunk && absPos < divNumber; ++n, absPos++) {
 			// Wait for fft completed for this piece
@@ -539,7 +517,6 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 				}
 			}
 		}
-		tPost.toc("Time to post:\t\t\t");
 	}
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -555,12 +532,8 @@ void CudaPsdCalculator::calculatePsd(double* mic, size_t xDim, size_t yDim, doub
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	// Average the result PSD
-	t.tic();
 	double idiv_Number = 1.0 / (divNumber) * pieceDim * pieceDim;
 	for(size_t i = 0; i < pieceDim * pieceDim; ++i)	{
 		psd[i] *= idiv_Number;
 	}
-	t.toc("Final reduction:\t\t");
-	tTotalCompute.toc("Total compute:\t\t\t");
-	tTotal.toc("Total\t\t\t\t");
 }
